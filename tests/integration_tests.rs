@@ -10,5 +10,7 @@ fn connect_to_rust_analyzer() {
         .spawn()
         .expect("failed to start rust-analyzer");
 
+    code_depth::init(&mut server).expect("failed to init rust-analyzer");
+
     server.kill().expect("failed to stop rust-analyzer");
 }
