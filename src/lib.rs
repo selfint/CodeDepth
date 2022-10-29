@@ -15,51 +15,41 @@ where
     R: AsyncRead + std::marker::Unpin,
     for<'de> M: serde::de::Deserialize<'de>,
 {
-    // read content-length: \d+
+    // match content-length: \d+
+    // and also match the separating \r\n\r\n to the actual content
+    // so that when we read the message we just read 'content-length' bytes
     let re = Regex::new(r"Content-Length: (\d+)\r\n\r\n").unwrap();
     let mut buf = vec![];
 
-    loop {
-        // get content-length
-        if let Ok(byte) = reader.read_u8().await {
-            buf.push(byte);
-        };
+    // get content-length
+    let content_length = loop {
+        let byte = reader.read_u8().await?;
+        buf.push(byte);
 
-        let text = std::str::from_utf8(&buf).unwrap();
+        let text = std::str::from_utf8(&buf).expect("got invalid utf-8");
 
-        let content_length = match re.captures(&text) {
-            Some(matches) => match matches.get(1) {
-                None => return Err("failed to extract content-length".into()),
-                Some(content_length) => match content_length.as_str().parse::<usize>() {
-                    Ok(content_length) => Some(content_length),
-                    Err(e) => return Err(Box::new(e)),
-                },
-            },
-            None => None,
-        };
-
-        if content_length.is_none() {
-            continue;
+        if let Some(matches) = re.captures(&text) {
+            let first_match = matches.get(1).ok_or("failed to extract content-length")?;
+            break first_match.as_str().parse::<usize>()?;
         }
+    };
 
-        // read the rest of the message
-        let expected_msg_left = content_length.unwrap();
-        let mut msg_buf = Vec::with_capacity(expected_msg_left);
-        if let Err(e) = reader.read_buf(&mut msg_buf).await {
-            return Err(Box::new(e));
-        }
-
-        let value: Value = serde_json::from_slice(&msg_buf)?;
-
-        let result = value
-            .get("result")
-            .ok_or("failed to get result from json response")?;
-
-        // TODO: why do we need to clone here?
-        let response = serde_json::from_value::<M>(result.clone())?;
-
-        return Ok(response);
+    // read the rest of the message
+    let mut msg_buf = Vec::with_capacity(content_length);
+    if let Err(e) = reader.read_buf(&mut msg_buf).await {
+        return Err(Box::new(e));
     }
+
+    let value: Value = serde_json::from_slice(&msg_buf)?;
+
+    let result = value
+        .get("result")
+        .ok_or("failed to get result from json response")?;
+
+    // TODO: why do we need to clone here?
+    let response = serde_json::from_value::<M>(result.clone())?;
+
+    Ok(response)
 }
 
 pub async fn init(
