@@ -6,11 +6,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 pub const JSON_RPC_VERSION: f32 = 2.0;
 
-pub fn build_request<T: for<'de> Deserialize<'de> + Serialize>(
-    id: usize,
-    method: &str,
-    params: &Option<T>,
-) -> Vec<u8> {
+pub fn build_request<T: Serialize>(id: usize, method: &str, params: &Option<T>) -> Vec<u8> {
     let mut j = json!({
             "jsonrpc": JSON_RPC_VERSION,
             "id": id,
