@@ -1,6 +1,5 @@
 use lsp_types::{InitializeResult, Url};
 use regex::Regex;
-use serde::de::IntoDeserializer;
 use serde_json::{json, Value};
 use std::error::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
