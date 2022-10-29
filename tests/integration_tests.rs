@@ -28,5 +28,7 @@ async fn connect_to_rust_analyzer() {
 
     server.kill().await.expect("failed to stop rust-analyzer");
 
-    assert!(response.is_ok());
+    // fail if response is err, but with nice debug info
+    response.unwrap();
+    assert!(true);
 }
