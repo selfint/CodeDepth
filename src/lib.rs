@@ -26,7 +26,7 @@ where
         let byte = reader.read_u8().await?;
         buf.push(byte);
 
-        let text = std::str::from_utf8(&buf).expect("got invalid utf-8");
+        let text = std::str::from_utf8(&buf)?;
 
         if let Some(matches) = re.captures(&text) {
             let first_match = matches.get(1).ok_or("failed to extract content-length")?;
@@ -67,7 +67,7 @@ pub async fn init(
         root_uri: Some(root_uri),
         ..Default::default()
     };
-    let init_msg_str = serde_json::to_value(&init_msg).expect("failed to serialize init message");
+    let init_msg_str = serde_json::to_value(&init_msg).unwrap();
     let init_msg_json_rpc = json!({
             "jsonrpc": 2.0,
             "id": 0,
