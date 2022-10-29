@@ -17,10 +17,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          cache-on-failure: true
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.0.1
 
       - name: Install rust-analyzer
         run: |
