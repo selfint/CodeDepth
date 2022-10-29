@@ -1,5 +1,6 @@
 use lsp_types::{InitializeResult, Url};
 use regex::Regex;
+use serde::de::IntoDeserializer;
 use serde_json::{json, Value};
 use std::error::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
@@ -10,10 +11,9 @@ fn to_json_rpc(msg: &str) -> Vec<u8> {
         .into()
 }
 
-async fn read_lsp_msg<R, M>(reader: &mut R) -> Result<M, Box<dyn Error>>
+async fn read_lsp_msg_buf<R>(reader: &mut R) -> Result<Vec<u8>, Box<dyn Error>>
 where
     R: AsyncRead + std::marker::Unpin,
-    for<'de> M: serde::de::Deserialize<'de>,
 {
     // match content-length: \d+
     // and also match the separating \r\n\r\n to the actual content
@@ -40,11 +40,18 @@ where
         return Err(Box::new(e));
     }
 
-    let value: Value = serde_json::from_slice(&msg_buf)?;
+    Ok(msg_buf)
+}
+
+fn parse_msg_key<M>(msg_buf: Vec<u8>, key: &str) -> Result<M, Box<dyn Error>>
+where
+    for<'de> M: serde::de::Deserialize<'de>,
+{
+    let value = serde_json::from_slice::<Value>(&msg_buf)?;
 
     let result = value
-        .get("result")
-        .ok_or("failed to get result from json response")?;
+        .get(key)
+        .ok_or(format!("failed to get {} from json response", key))?;
 
     // TODO: why do we need to clone here?
     let response = serde_json::from_value::<M>(result.clone())?;
@@ -86,7 +93,9 @@ pub async fn init(
 
     stdin.write_all(&init_msg_buf).await?;
 
-    let msg: InitializeResult = read_lsp_msg(stdout).await?;
+    let msg_buf = read_lsp_msg_buf(stdout).await?;
+
+    let msg = parse_msg_key::<InitializeResult>(msg_buf, "result")?;
 
     Ok(msg)
 }
