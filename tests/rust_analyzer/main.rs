@@ -1,4 +1,4 @@
-use std::{path::Path, process::Stdio};
+use std::{path::Path, process::Stdio, time::Duration};
 
 use lsp_types::Url;
 use tokio::process::{Child, Command};
@@ -73,11 +73,28 @@ async fn test_get_function_definitions() {
     // fail if response is err, but with nice debug info
     response.unwrap();
 
-    let definitions = code_depth::get_function_definitions(stdin, stdout)
+    let definitions = code_depth::get_function_definitions(stdin, stdout, Duration::from_secs(5))
         .await
         .unwrap();
 
-    assert_eq!(definitions.len(), 3);
+    for definition in &definitions {
+        assert_eq!(
+            definition.kind,
+            lsp_types::SymbolKind::FUNCTION,
+            "got non-function symbol"
+        );
+    }
+
+    let mut function_names = definitions
+        .iter()
+        .map(|s| s.name.clone())
+        .collect::<Vec<String>>();
+
+    function_names.sort();
+
+    let expected_function_names = vec!["foo", "impl_method", "in_foo", "main", "other_file_method"];
+
+    assert_eq!(function_names, expected_function_names);
 
     server.kill().await.expect("failed to stop rust-analyzer");
 }
