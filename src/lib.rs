@@ -18,18 +18,6 @@ where
 {
     let initialize_params = lsp_types::InitializeParams {
         root_uri: Some(root_uri),
-        capabilities: lsp_types::ClientCapabilities {
-            workspace: Some(lsp_types::WorkspaceClientCapabilities {
-                symbol: Some(lsp_types::WorkspaceSymbolClientCapabilities {
-                    symbol_kind: Some(lsp_types::SymbolKindCapability {
-                        value_set: Some(vec![lsp_types::SymbolKind::FUNCTION]),
-                    }),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
         ..Default::default()
     };
     let initialize_request = build_request(0, "initialize", &Some(initialize_params));
