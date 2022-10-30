@@ -24,6 +24,23 @@ pub fn build_request<T: Serialize>(id: usize, method: &str, params: &Option<T>) 
         .into()
 }
 
+pub fn build_notification<T: Serialize>(method: &str, params: &Option<T>) -> Vec<u8> {
+    let mut j = json!({
+            "jsonrpc": JSON_RPC_VERSION,
+            "method": method,
+    });
+
+    if let Some(params) = params {
+        j["params"] = serde_json::to_value(params).expect("failed to serialize params");
+    }
+
+    let json_str = j.to_string();
+
+    format!("Content-Length: {}\r\n\r\n{}", json_str.len(), json_str)
+        .as_bytes()
+        .into()
+}
+
 pub async fn get_next_response<R>(reader: &mut R) -> Result<Vec<u8>, Box<dyn Error>>
 where
     R: AsyncRead + std::marker::Unpin,
@@ -36,9 +53,12 @@ where
 
     // get content-length
     let content_length = loop {
-        let byte = reader.read_u8().await?;
-        buf.push(byte);
+        let byte = match reader.read_u8().await {
+            Ok(byte) => byte,
+            Err(_) => continue,
+        };
 
+        buf.push(byte);
         let text = std::str::from_utf8(&buf)?;
 
         if let Some(matches) = re.captures(&text) {
