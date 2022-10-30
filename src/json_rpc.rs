@@ -1,7 +1,8 @@
+use std::error::Error;
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::error::Error;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 pub const JSON_RPC_VERSION: f32 = 2.0;
