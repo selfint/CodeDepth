@@ -1,11 +1,51 @@
 use std::error::Error;
 
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 pub const JSON_RPC_VERSION: f32 = 2.0;
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct _Response<T> {
+    pub id: usize,
+    pub jsonrpc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Response<T> {
+    pub id: usize,
+    pub response: Result<T, JsonRpcError>,
+}
+
+impl<T> From<_Response<T>> for Response<T> {
+    fn from(response: _Response<T>) -> Self {
+        assert!(response.result.is_some() ^ response.error.is_some());
+
+        if let Some(result) = response.result {
+            Self {
+                id: response.id,
+                response: Ok(result),
+            }
+        } else {
+            Self {
+                id: response.id,
+                response: Err(response.error.unwrap()),
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JsonRpcError {
+    pub code: isize,
+    pub message: String,
+}
 
 pub fn build_request<T: Serialize>(id: usize, method: &str, params: &Option<T>) -> Vec<u8> {
     let mut j = json!({
@@ -77,13 +117,6 @@ where
     Ok(msg_buf)
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Deserialize)]
-struct Response<T> {
-    pub id: usize,
-    pub jsonrpc: String,
-    pub result: T,
-}
-
-pub fn get_response_result<T: for<'de> Deserialize<'de>>(buf: &[u8]) -> Result<T, Box<dyn Error>> {
-    Ok(serde_json::from_slice::<Response<T>>(&buf)?.result)
+pub fn get_response_result<T: DeserializeOwned>(buf: &[u8]) -> Result<Response<T>, Box<dyn Error>> {
+    Ok(serde_json::from_slice::<_Response<T>>(&buf)?.into())
 }
