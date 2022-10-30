@@ -1,19 +1,73 @@
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::error::Error;
+
+use regex::Regex;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 pub const JSON_RPC_VERSION: f32 = 2.0;
 
-pub fn build_request<T: for<'de> Deserialize<'de> + Serialize>(
-    id: usize,
-    method: &str,
-    params: &Option<T>,
-) -> Vec<u8> {
+#[derive(Debug, Clone, Default, Deserialize)]
+struct _Response<T> {
+    pub id: usize,
+    pub jsonrpc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Response<T> {
+    pub id: usize,
+    pub response: Result<T, JsonRpcError>,
+}
+
+impl<T> From<_Response<T>> for Response<T> {
+    fn from(response: _Response<T>) -> Self {
+        assert!(response.result.is_some() ^ response.error.is_some());
+
+        if let Some(result) = response.result {
+            Self {
+                id: response.id,
+                response: Ok(result),
+            }
+        } else {
+            Self {
+                id: response.id,
+                response: Err(response.error.unwrap()),
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JsonRpcError {
+    pub code: isize,
+    pub message: String,
+}
+
+pub fn build_request<T: Serialize>(id: usize, method: &str, params: &Option<T>) -> Vec<u8> {
     let mut j = json!({
             "jsonrpc": JSON_RPC_VERSION,
             "id": id,
+            "method": method,
+    });
+
+    if let Some(params) = params {
+        j["params"] = serde_json::to_value(params).expect("failed to serialize params");
+    }
+
+    let json_str = j.to_string();
+
+    format!("Content-Length: {}\r\n\r\n{}", json_str.len(), json_str)
+        .as_bytes()
+        .into()
+}
+
+pub fn build_notification<T: Serialize>(method: &str, params: &Option<T>) -> Vec<u8> {
+    let mut j = json!({
+            "jsonrpc": JSON_RPC_VERSION,
             "method": method,
     });
 
@@ -40,9 +94,12 @@ where
 
     // get content-length
     let content_length = loop {
-        let byte = reader.read_u8().await?;
-        buf.push(byte);
+        let byte = match reader.read_u8().await {
+            Ok(byte) => byte,
+            Err(_) => continue,
+        };
 
+        buf.push(byte);
         let text = std::str::from_utf8(&buf)?;
 
         if let Some(matches) = re.captures(&text) {
@@ -60,13 +117,6 @@ where
     Ok(msg_buf)
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Deserialize)]
-struct Response<T> {
-    pub id: usize,
-    pub jsonrpc: String,
-    pub result: T,
-}
-
-pub fn get_response_result<T: for<'de> Deserialize<'de>>(buf: &[u8]) -> Result<T, Box<dyn Error>> {
-    Ok(serde_json::from_slice::<Response<T>>(&buf)?.result)
+pub fn get_response_result<T: DeserializeOwned>(buf: &[u8]) -> Result<Response<T>, Box<dyn Error>> {
+    Ok(serde_json::from_slice::<_Response<T>>(&buf)?.into())
 }
