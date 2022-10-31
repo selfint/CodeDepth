@@ -118,5 +118,6 @@ where
 }
 
 pub fn get_response_result<T: DeserializeOwned>(buf: &[u8]) -> Result<Response<T>, Box<dyn Error>> {
+    dbg!(std::str::from_utf8(&buf));
     Ok(serde_json::from_slice::<_Response<T>>(&buf)?.into())
 }
