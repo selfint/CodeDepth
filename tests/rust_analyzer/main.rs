@@ -98,3 +98,72 @@ async fn test_get_function_definitions() {
 
     server.kill().await.expect("failed to stop rust-analyzer");
 }
+
+#[tokio::test]
+async fn test_get_function_calls() {
+    let mut server = start_rust_analyzer().await;
+
+    let stdin = server
+        .stdin
+        .as_mut()
+        .take()
+        .expect("failed to acquire stdin of server process");
+
+    let stdout = server
+        .stdout
+        .as_mut()
+        .take()
+        .expect("failed to acquire stdout of server process");
+
+    let sample_project_path = Path::new(SAMPLE_PROJECT_PATH).canonicalize().unwrap();
+
+    let project_url =
+        Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
+
+    let response = code_depth::init(stdin, stdout, project_url).await;
+
+    // fail if response is err, but with nice debug info
+    response.unwrap();
+
+    let definitions = code_depth::get_function_definitions(stdin, stdout, Duration::from_secs(5))
+        .await
+        .unwrap();
+
+    let calls = code_depth::get_function_calls(stdin, stdout, &definitions)
+        .await
+        .unwrap();
+
+    let mut short_calls: Vec<String> = calls
+        .iter()
+        .map(|(s, t)| {
+            format!(
+                "{}:{}->{}:{}",
+                Path::new(s.uri.path())
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                s.name,
+                Path::new(t.uri.path())
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                t.name
+            )
+        })
+        .collect();
+
+    short_calls.sort();
+
+    assert_eq!(
+        short_calls,
+        vec![
+            "main.rs:foo->main.rs:in_foo",
+            "main.rs:impl_method->other_file.rs:other_file_method",
+            "main.rs:in_foo->main.rs:impl_method",
+            "main.rs:main->main.rs:foo",
+            "main.rs:main->main.rs:impl_method",
+        ]
+    );
+}

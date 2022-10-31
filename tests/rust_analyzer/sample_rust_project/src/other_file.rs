@@ -1,1 +1,1 @@
-fn other_file_method() {}
+pub fn other_file_method() {}
