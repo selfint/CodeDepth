@@ -7,14 +7,14 @@ use tokio::io::AsyncWriteExt;
 
 use json_rpc::{build_notification, build_request, get_next_response, get_response_result};
 
-pub async fn init<R, W>(
-    reader: &mut R,
-    writer: &mut W,
+pub async fn init<I, O>(
+    input: &mut I,
+    output: &mut O,
     root_uri: Url,
 ) -> Result<InitializeResult, Box<dyn Error>>
 where
-    R: tokio::io::AsyncWrite + std::marker::Unpin,
-    W: tokio::io::AsyncRead + std::marker::Unpin,
+    I: tokio::io::AsyncWrite + std::marker::Unpin,
+    O: tokio::io::AsyncRead + std::marker::Unpin,
 {
     let initialize_params = lsp_types::InitializeParams {
         root_uri: Some(root_uri),
@@ -22,9 +22,9 @@ where
     };
     let initialize_request = build_request(0, "initialize", &Some(initialize_params));
 
-    reader.write_all(&initialize_request).await?;
+    input.write_all(&initialize_request).await?;
 
-    let response = get_next_response(writer).await?;
+    let response = get_next_response(output).await?;
 
     let msg = get_response_result::<InitializeResult>(&response)?
         .response
@@ -32,19 +32,19 @@ where
 
     let initialized_params = lsp_types::InitializedParams {};
     let initialized_request = build_notification("initialized", &Some(initialized_params));
-    reader.write_all(&initialized_request).await?;
+    input.write_all(&initialized_request).await?;
 
     Ok(msg)
 }
 
-pub async fn get_function_definitions<R, W>(
-    reader: &mut R,
-    writer: &mut W,
+pub async fn get_function_definitions<I, O>(
+    input: &mut I,
+    output: &mut O,
     max_duration: Duration,
 ) -> Result<Vec<SymbolInformation>, Box<dyn Error>>
 where
-    R: tokio::io::AsyncWrite + std::marker::Unpin,
-    W: tokio::io::AsyncRead + std::marker::Unpin,
+    I: tokio::io::AsyncWrite + std::marker::Unpin,
+    O: tokio::io::AsyncRead + std::marker::Unpin,
 {
     let retry_sleep_duration = 100;
     let retry_amount = max_duration.as_millis() / retry_sleep_duration;
@@ -60,8 +60,8 @@ where
 
     let request = build_request(1, "workspace/symbol", &params);
 
-    reader.write_all(&request).await?;
-    let response = get_next_response(writer).await?;
+    input.write_all(&request).await?;
+    let response = get_next_response(output).await?;
     let mut result = get_response_result::<Vec<lsp_types::SymbolInformation>>(&response)
         .unwrap()
         .response;
@@ -78,8 +78,8 @@ where
 
         std::thread::sleep(Duration::from_millis(retry_sleep_duration as u64));
 
-        reader.write_all(&request).await?;
-        let response = get_next_response(writer).await?;
+        input.write_all(&request).await?;
+        let response = get_next_response(output).await?;
         result = get_response_result::<Vec<lsp_types::SymbolInformation>>(&response)
             .unwrap()
             .response;
