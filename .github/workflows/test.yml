@@ -23,10 +23,11 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+          components: rust-src
 
       - name: Install rust-analyzer
         run: |
-          curl -L https://github.com/rust-lang/rust-analyzer/releases/download/2022-10-24/rust-analyzer-x86_64-unknown-linux-gnu.gz | gunzip -c - > /usr/local/bin/rust-analyzer
+          curl -L https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-unknown-linux-gnu.gz | gunzip -c - > /usr/local/bin/rust-analyzer
           chmod +x /usr/local/bin/rust-analyzer
 
       - uses: actions-rs/cargo@v1
