@@ -1,8 +1,11 @@
 pub mod json_rpc;
 
-use std::{error::Error, time::Duration};
+use std::{collections::HashSet, error::Error, time::Duration};
 
-use lsp_types::{InitializeResult, SymbolInformation, Url, WorkspaceSymbolParams};
+use lsp_types::{
+    request::Request, CallHierarchyItem, InitializeResult, SymbolInformation, Url,
+    WorkspaceSymbolParams,
+};
 use tokio::io::AsyncWriteExt;
 
 use json_rpc::{build_notification, build_request, get_next_response, get_response_result};
@@ -18,6 +21,16 @@ where
 {
     let initialize_params = lsp_types::InitializeParams {
         root_uri: Some(root_uri),
+        capabilities: lsp_types::ClientCapabilities {
+            text_document: Some(lsp_types::TextDocumentClientCapabilities {
+                document_symbol: Some(lsp_types::DocumentSymbolClientCapabilities {
+                    hierarchical_document_symbol_support: Some(true),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let initialize_request = build_request(0, "initialize", &Some(initialize_params));
@@ -94,6 +107,118 @@ where
         .collect::<Vec<SymbolInformation>>();
 
     Ok(function_definitions)
+}
+
+pub async fn get_function_calls<I, O>(
+    input: &mut I,
+    output: &mut O,
+    definitions: &Vec<SymbolInformation>,
+) -> Result<Vec<(CallHierarchyItem, CallHierarchyItem)>, Box<dyn Error>>
+where
+    I: tokio::io::AsyncWrite + std::marker::Unpin,
+    O: tokio::io::AsyncRead + std::marker::Unpin,
+{
+    // get exact location of each definition's name
+    let mut definition_files = HashSet::new();
+
+    // build CallHierarchyItems from definition symbols
+    for definition in definitions {
+        definition_files.insert(definition.location.uri.clone());
+    }
+
+    let mut exact_definitions = vec![];
+
+    let mut request_id = 2;
+    for file in definition_files.iter() {
+        // get file symbols
+        let params = Some(lsp_types::DocumentSymbolParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file.clone() },
+            partial_result_params: lsp_types::PartialResultParams::default(),
+            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
+        });
+
+        let request = build_request(
+            request_id,
+            lsp_types::request::DocumentSymbolRequest::METHOD,
+            &params,
+        );
+
+        input.write_all(&request).await?;
+
+        let response = get_next_response(output).await?;
+
+        let result = get_response_result::<lsp_types::DocumentSymbolResponse>(&response)?
+            .response
+            .unwrap();
+
+        match result {
+            // we need DocumentSymbol for the precise location of the function name
+            lsp_types::DocumentSymbolResponse::Flat(_) => return Err("got flat".into()),
+            lsp_types::DocumentSymbolResponse::Nested(symbols) => {
+                update_exact_definitions(symbols, file, &mut exact_definitions);
+            }
+        }
+
+        request_id += 1;
+    }
+
+    let mut calls = vec![];
+    for (file, definition) in exact_definitions {
+        // get definition call hierarchy item
+        let target_item = lsp_types::CallHierarchyItem {
+            name: definition.name,
+            kind: definition.kind,
+            tags: definition.tags,
+            detail: definition.detail,
+            uri: file.clone(),
+            range: definition.range,
+            selection_range: definition.selection_range,
+            data: None,
+        };
+        let params = Some(lsp_types::CallHierarchyIncomingCallsParams {
+            item: target_item.clone(),
+            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
+            partial_result_params: lsp_types::PartialResultParams::default(),
+        });
+
+        let request = build_request(
+            request_id,
+            lsp_types::request::CallHierarchyIncomingCalls::METHOD,
+            &params,
+        );
+
+        input.write_all(&request).await?;
+
+        let response = get_next_response(output).await?;
+
+        let result = get_response_result::<Vec<lsp_types::CallHierarchyIncomingCall>>(&response)?
+            .response
+            .unwrap();
+
+        for source_item in result {
+            calls.push((source_item.from, target_item.clone()));
+        }
+
+        request_id += 1;
+    }
+
+    Ok(calls)
+}
+
+fn update_exact_definitions(
+    symbols: Vec<lsp_types::DocumentSymbol>,
+    file: &Url,
+    exact_definitions: &mut Vec<(Url, lsp_types::DocumentSymbol)>,
+) {
+    for symbol in symbols {
+        if symbol.kind == lsp_types::SymbolKind::FUNCTION {
+            exact_definitions.push((file.to_owned(), symbol.clone()));
+        }
+
+        if let Some(children) = symbol.children {
+            update_exact_definitions(children, file, exact_definitions);
+        }
+    }
 }
 
 #[cfg(test)]
