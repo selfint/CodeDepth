@@ -1,15 +1,16 @@
-pub mod json_rpc;
+mod graph_util;
+mod hashable_call_hierarchy_item;
+mod json_rpc;
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::{collections::HashSet, error::Error, time::Duration};
 
+use graph_util::get_depths;
+use hashable_call_hierarchy_item::HashableCallHierarchyItem;
 use lsp_types::{
     request::Request, CallHierarchyItem, InitializeResult, SymbolInformation, Url,
     WorkspaceSymbolParams,
 };
-use petgraph::Graph;
 use tokio::io::AsyncWriteExt;
 
 use json_rpc::{build_notification, build_request, get_next_response, get_response_result};
@@ -225,57 +226,10 @@ fn update_exact_definitions(
     }
 }
 
-#[derive(Clone)]
-struct HashableCallHierarchyItem(CallHierarchyItem);
-
-impl std::fmt::Debug for HashableCallHierarchyItem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("HashableCallHierarchyItem({})", self.0.name))
-    }
-}
-
-impl Hash for HashableCallHierarchyItem {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.name.hash(state);
-        self.0.uri.hash(state);
-        serde_json::to_string(&self.0.selection_range)
-            .expect("failed to serialize call item")
-            .hash(state);
-    }
-}
-
-impl PartialEq for HashableCallHierarchyItem {
-    fn eq(&self, other: &Self) -> bool {
-        let mut s1 = DefaultHasher::new();
-        self.hash(&mut s1);
-        let h1 = s1.finish();
-
-        let mut s2 = DefaultHasher::new();
-        other.hash(&mut s2);
-        let h2 = s2.finish();
-
-        h1 == h2
-    }
-}
-
-impl Eq for HashableCallHierarchyItem {}
-
-impl From<CallHierarchyItem> for HashableCallHierarchyItem {
-    fn from(call_hierarchy_item: CallHierarchyItem) -> Self {
-        Self(call_hierarchy_item)
-    }
-}
-
-impl From<HashableCallHierarchyItem> for CallHierarchyItem {
-    fn from(hashable_call_hierarchy_item: HashableCallHierarchyItem) -> Self {
-        hashable_call_hierarchy_item.0
-    }
-}
-
 pub fn get_function_depths(
     calls: Vec<(CallHierarchyItem, CallHierarchyItem)>,
 ) -> Vec<(CallHierarchyItem, Vec<(CallHierarchyItem, usize)>)> {
-    let hashable_calls: Vec<(HashableCallHierarchyItem, HashableCallHierarchyItem)> = calls
+    let hashable_calls = calls
         .iter()
         .map(|(s, t)| (s.clone().into(), t.clone().into()))
         .collect();
@@ -301,117 +255,4 @@ pub fn get_function_depths(
     }
 
     r
-}
-
-fn get_depths<T>(edges: &Vec<(T, T)>) -> Vec<(T, Vec<(T, usize)>)>
-where
-    T: Clone + Hash + Eq + std::fmt::Debug,
-{
-    // find all roots and execute a bfs from each one to get depths
-    // of each node from each root
-    let targets = edges.iter().map(|e| e.1.clone()).collect::<HashSet<_>>();
-    let mut roots = HashSet::new();
-    for (s, _) in edges {
-        if !targets.contains(&s) {
-            roots.insert(s);
-        }
-    }
-
-    roots
-        .iter()
-        .map(|&r| (r.clone(), get_root_depths(r, edges)))
-        .collect()
-}
-
-fn get_root_depths<T>(root: &T, edges: &Vec<(T, T)>) -> Vec<(T, usize)>
-where
-    T: Clone + Hash + Eq + std::fmt::Debug,
-{
-    // build graph
-    let mut to_graph_node = HashMap::new();
-    let mut graph: Graph<T, ()> = Graph::new();
-
-    for (s, t) in edges {
-        if !to_graph_node.contains_key(s) {
-            to_graph_node.insert(s, graph.add_node(s.clone()));
-        }
-
-        if !to_graph_node.contains_key(t) {
-            to_graph_node.insert(t, graph.add_node(t.clone()));
-        }
-
-        graph.add_edge(
-            *to_graph_node.get(s).unwrap(),
-            *to_graph_node.get(t).unwrap(),
-            (),
-        );
-    }
-
-    // run bfs
-    let mut graph_depths = vec![];
-
-    let mut roots = vec![*to_graph_node.get(root).unwrap()];
-    let mut depth: usize = 0;
-    let mut visited = HashSet::new();
-    while !roots.is_empty() {
-        let mut new_roots = vec![];
-        for &r in &roots {
-            if !visited.contains(&r) {
-                graph_depths.push((r.clone(), depth));
-                visited.insert(r);
-
-                new_roots.extend(graph.neighbors(r));
-            }
-        }
-
-        roots = new_roots;
-        depth += 1;
-    }
-
-    // convert graph nodes to real nodes
-    graph_depths
-        .iter()
-        .map(|(n, d)| (graph.node_weight(*n).unwrap().clone(), *d))
-        .collect::<Vec<_>>()
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::get_depths;
-
-    #[test]
-    fn test_get_depths() {
-        assert_eq!(
-            get_depths(&(vec![(0, 1), (1, 2), (2, 3)])),
-            vec![(0, vec![(0, 0), (1, 1), (2, 2), (3, 3),])]
-        );
-    }
-
-    #[test]
-    fn test_get_depths_2_roots() {
-        let depths = get_depths(&vec![
-            (0, 1), // root 1
-            (1, 2),
-            (2, 3),
-            (10, 11), // root 2
-            (11, 12),
-            (12, 13),
-        ]);
-
-        assert!(depths.contains(&(0, vec![(0, 0), (1, 1), (2, 2), (3, 3),])));
-        assert!(depths.contains(&(10, vec![(10, 0), (11, 1), (12, 2), (13, 3),])));
-    }
-
-    #[test]
-    fn test_get_depths_loop() {
-        assert_eq!(
-            get_depths(&(vec![(0, 1), (0, 2), (1, 2), (2, 1)])),
-            vec![(0, vec![(0, 0), (2, 1), (1, 1),])]
-        );
-    }
-
-    #[test]
-    fn test_top_level_loop() {
-        assert_eq!(get_depths(&(vec![(0, 1), (1, 0)])), vec![]);
-    }
 }
