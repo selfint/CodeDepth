@@ -10,6 +10,7 @@ pub const JSON_RPC_VERSION: f32 = 2.0;
 #[derive(Debug, Clone, Default, Deserialize)]
 struct _Response<T> {
     pub id: usize,
+    #[allow(dead_code)]
     pub jsonrpc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<T>,
