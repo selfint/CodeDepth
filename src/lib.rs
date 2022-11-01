@@ -1,7 +1,12 @@
-pub mod json_rpc;
+mod graph_util;
+mod hashable_call_hierarchy_item;
+mod json_rpc;
 
+use std::collections::HashMap;
 use std::{collections::HashSet, error::Error, time::Duration};
 
+use graph_util::get_depths;
+use hashable_call_hierarchy_item::HashableCallHierarchyItem;
 use lsp_types::{
     request::Request, CallHierarchyItem, InitializeResult, SymbolInformation, Url,
     WorkspaceSymbolParams,
@@ -221,5 +226,33 @@ fn update_exact_definitions(
     }
 }
 
-#[cfg(test)]
-mod tests {}
+pub fn get_function_depths(
+    calls: Vec<(CallHierarchyItem, CallHierarchyItem)>,
+) -> Vec<(CallHierarchyItem, Vec<(CallHierarchyItem, usize)>)> {
+    let hashable_calls = calls
+        .iter()
+        .map(|(s, t)| (s.clone().into(), t.clone().into()))
+        .collect();
+
+    let depths_by_root = get_depths(&hashable_calls);
+
+    let mut depths_from_roots: HashMap<HashableCallHierarchyItem, Vec<(CallHierarchyItem, usize)>> =
+        HashMap::new();
+
+    for (root, root_depths) in depths_by_root {
+        for (child, depth) in root_depths {
+            depths_from_roots
+                .entry(child)
+                .or_insert(vec![])
+                .push((root.clone().into(), depth));
+        }
+    }
+
+    // TODO: what is the functional way to implement this (without clone)?
+    let mut r = vec![];
+    for (k, v) in depths_from_roots {
+        r.push((k.into(), v));
+    }
+
+    r
+}

@@ -167,3 +167,93 @@ async fn test_get_function_calls() {
         ]
     );
 }
+
+#[tokio::test]
+async fn test_get_function_depths() {
+    let mut server = start_rust_analyzer().await;
+
+    let stdin = server
+        .stdin
+        .as_mut()
+        .take()
+        .expect("failed to acquire stdin of server process");
+
+    let stdout = server
+        .stdout
+        .as_mut()
+        .take()
+        .expect("failed to acquire stdout of server process");
+
+    let sample_project_path = Path::new(SAMPLE_PROJECT_PATH).canonicalize().unwrap();
+
+    let project_url =
+        Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
+
+    let response = code_depth::init(stdin, stdout, project_url).await;
+
+    // fail if response is err, but with nice debug info
+    response.unwrap();
+
+    let definitions = code_depth::get_function_definitions(stdin, stdout, Duration::from_secs(5))
+        .await
+        .unwrap();
+
+    let calls = code_depth::get_function_calls(stdin, stdout, &definitions)
+        .await
+        .unwrap();
+
+    let depths = code_depth::get_function_depths(calls);
+
+    let short_depths: Vec<_> = depths
+        .iter()
+        .map(|(s, t)| {
+            (
+                format!(
+                    "method {}:{} depths",
+                    Path::new(s.uri.path())
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap(),
+                    s.name,
+                ),
+                t.iter().fold("".to_string(), |mut a, b| {
+                    a += "root ";
+                    a += Path::new(b.0.uri.path())
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap();
+                    a += &format!(":{} - {}", b.0.name, b.1);
+
+                    a
+                }),
+            )
+        })
+        .collect();
+
+    assert!(short_depths.contains(&(
+        "method other_file.rs:other_file_method depths".into(),
+        "root main.rs:main - 2".into(),
+    ),));
+
+    assert!(short_depths.contains(&(
+        "method main.rs:in_foo depths".into(),
+        "root main.rs:main - 2".into(),
+    ),));
+
+    assert!(short_depths.contains(&(
+        "method main.rs:impl_method depths".into(),
+        "root main.rs:main - 1".into(),
+    ),));
+
+    assert!(short_depths.contains(&(
+        "method main.rs:foo depths".into(),
+        "root main.rs:main - 1".into(),
+    ),));
+
+    assert!(short_depths.contains(&(
+        "method main.rs:main depths".into(),
+        "root main.rs:main - 0".into(),
+    ),));
+}
