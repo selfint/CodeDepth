@@ -95,11 +95,7 @@ where
 
     // get content-length
     let content_length = loop {
-        let byte = match reader.read_u8().await {
-            Ok(byte) => byte,
-            Err(_) => continue,
-        };
-
+        let byte = reader.read_u8().await?;
         buf.push(byte);
         let text = std::str::from_utf8(&buf)?;
 
@@ -111,8 +107,18 @@ where
 
     // read the rest of the message
     let mut msg_buf = Vec::with_capacity(content_length);
+
     if let Err(e) = reader.read_buf(&mut msg_buf).await {
         return Err(Box::new(e));
+    }
+
+    while msg_buf.len() < content_length {
+        let mut next_buf = Vec::with_capacity(content_length - msg_buf.len());
+        if let Err(e) = reader.read_buf(&mut next_buf).await {
+            return Err(Box::new(e));
+        }
+
+        msg_buf.append(&mut next_buf);
     }
 
     Ok(msg_buf)
@@ -122,7 +128,12 @@ pub fn get_response_result<T: DeserializeOwned>(buf: &[u8]) -> Result<Response<T
     Ok(match serde_json::from_slice::<_Response<T>>(&buf) {
         Ok(it) => it,
         Err(err) => {
-            return Err(format!("got err: {} on buf: {:?}", err, std::str::from_utf8(&buf)).into())
+            eprintln!("got error on buf size: {}", buf.len());
+            eprintln!(
+                "buf {}",
+                std::str::from_utf8(buf).unwrap().chars().nth(100).unwrap()
+            );
+            return Err(Box::new(err));
         }
     }
     .into())
