@@ -68,14 +68,15 @@ async fn test_get_function_definitions() {
     let project_url =
         Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
 
-    let response = code_depth::init(stdin, stdout, project_url).await;
+    let response = code_depth::init(stdin, stdout, project_url.clone()).await;
 
     // fail if response is err, but with nice debug info
     response.unwrap();
 
-    let definitions = code_depth::get_function_definitions(stdin, stdout, Duration::from_secs(5))
-        .await
-        .unwrap();
+    let definitions =
+        code_depth::get_function_definitions(stdin, stdout, &project_url, Duration::from_secs(5))
+            .await
+            .unwrap();
 
     for definition in &definitions {
         assert_eq!(
@@ -92,7 +93,14 @@ async fn test_get_function_definitions() {
 
     function_names.sort();
 
-    let expected_function_names = vec!["foo", "impl_method", "in_foo", "main", "other_file_method"];
+    let expected_function_names = vec![
+        "fmt",
+        "foo",
+        "impl_method",
+        "in_foo",
+        "main",
+        "other_file_method",
+    ];
 
     assert_eq!(function_names, expected_function_names);
 
@@ -120,16 +128,17 @@ async fn test_get_function_calls() {
     let project_url =
         Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
 
-    let response = code_depth::init(stdin, stdout, project_url).await;
+    let response = code_depth::init(stdin, stdout, project_url.clone()).await;
 
     // fail if response is err, but with nice debug info
     response.unwrap();
 
-    let definitions = code_depth::get_function_definitions(stdin, stdout, Duration::from_secs(5))
-        .await
-        .unwrap();
+    let definitions =
+        code_depth::get_function_definitions(stdin, stdout, &project_url, Duration::from_secs(5))
+            .await
+            .unwrap();
 
-    let calls = code_depth::get_function_calls(stdin, stdout, &definitions)
+    let calls = code_depth::get_function_calls(stdin, stdout, &definitions, &project_url)
         .await
         .unwrap();
 
@@ -189,16 +198,17 @@ async fn test_get_function_depths() {
     let project_url =
         Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
 
-    let response = code_depth::init(stdin, stdout, project_url).await;
+    let response = code_depth::init(stdin, stdout, project_url.clone()).await;
 
     // fail if response is err, but with nice debug info
     response.unwrap();
 
-    let definitions = code_depth::get_function_definitions(stdin, stdout, Duration::from_secs(5))
-        .await
-        .unwrap();
+    let definitions =
+        code_depth::get_function_definitions(stdin, stdout, &project_url, Duration::from_secs(5))
+            .await
+            .unwrap();
 
-    let calls = code_depth::get_function_calls(stdin, stdout, &definitions)
+    let calls = code_depth::get_function_calls(stdin, stdout, &definitions, &project_url)
         .await
         .unwrap();
 
