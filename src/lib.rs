@@ -58,6 +58,7 @@ where
 pub async fn get_function_definitions<I, O>(
     input: &mut I,
     output: &mut O,
+    project_root: &Url,
     max_duration: Duration,
 ) -> Result<Vec<SymbolInformation>, Box<dyn Error>>
 where
@@ -108,6 +109,7 @@ where
     let function_definitions = symbols
         .iter()
         .filter(|&s| s.kind == lsp_types::SymbolKind::FUNCTION)
+        .filter(|&s| s.location.uri.as_str().starts_with(project_root.as_str()))
         .map(|s| s.to_owned())
         .collect::<Vec<SymbolInformation>>();
 
@@ -118,6 +120,7 @@ pub async fn get_function_calls<I, O>(
     input: &mut I,
     output: &mut O,
     definitions: &Vec<SymbolInformation>,
+    project_root: &Url,
 ) -> Result<Vec<(CallHierarchyItem, CallHierarchyItem)>, Box<dyn Error>>
 where
     I: tokio::io::AsyncWrite + std::marker::Unpin,
@@ -196,12 +199,47 @@ where
 
         let response = get_next_response(output).await?;
 
-        let result = get_response_result::<Vec<lsp_types::CallHierarchyIncomingCall>>(&response)?
-            .response
-            .unwrap();
+        let result = get_response_result::<Vec<lsp_types::CallHierarchyIncomingCall>>(&response);
 
-        for source_item in result {
-            calls.push((source_item.from, target_item.clone()));
+        match result {
+            Ok(result) => match result.response {
+                Ok(response) => {
+                    for source_item in response {
+                        // filter out calls from outside our project
+                        if source_item
+                            .from
+                            .uri
+                            .as_str()
+                            .starts_with(project_root.as_str())
+                        {
+                            calls.push((source_item.from, target_item.clone()));
+                        }
+                    }
+                }
+                Err(e) => {
+                    dbg!(format!(
+                        "got jsonRpcError for {:?}: {:?} {:?}",
+                        (
+                            file.as_str(),
+                            &target_item.name,
+                            &target_item.selection_range.start
+                        ),
+                        e.code,
+                        e.message.chars().take(100).collect::<String>()
+                    ));
+                }
+            },
+            Err(e) => {
+                dbg!(format!(
+                    "got error for {:?}: {:?}",
+                    (
+                        file.as_str(),
+                        &target_item.name,
+                        &target_item.selection_range.start
+                    ),
+                    e,
+                ));
+            }
         }
 
         request_id += 1;
