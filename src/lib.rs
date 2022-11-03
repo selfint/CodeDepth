@@ -7,6 +7,7 @@ use std::{collections::HashSet, error::Error, time::Duration};
 
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
+use lsp_types::InitializeError;
 use lsp_types::{
     request::Request, CallHierarchyItem, InitializeResult, SymbolInformation, Url,
     WorkspaceSymbolParams,
@@ -15,45 +16,27 @@ use tokio::io::AsyncWriteExt;
 
 // use json_rpc::{build_notification, build_request, get_next_response, get_response_result};
 
-// pub async fn init<I, O>(
-//     input: &mut I,
-//     output: &mut O,
-//     root_uri: Url,
-// ) -> Result<InitializeResult, Box<dyn Error>>
-// where
-//     I: tokio::io::AsyncWrite + std::marker::Unpin,
-//     O: tokio::io::AsyncRead + std::marker::Unpin,
-// {
-//     let initialize_params = lsp_types::InitializeParams {
-//         root_uri: Some(root_uri),
-//         capabilities: lsp_types::ClientCapabilities {
-//             text_document: Some(lsp_types::TextDocumentClientCapabilities {
-//                 document_symbol: Some(lsp_types::DocumentSymbolClientCapabilities {
-//                     hierarchical_document_symbol_support: Some(true),
-//                     ..Default::default()
-//                 }),
-//                 ..Default::default()
-//             }),
-//             ..Default::default()
-//         },
-//         ..Default::default()
-//     };
-//     let initialize_request = build_request(0, "initialize", &Some(initialize_params));
+pub async fn init(
+    client: &mut lsp_client::StdIOLspClient,
+    root_uri: Url,
+) -> Result<InitializeResult, InitializeError> {
+    let params = lsp_types::InitializeParams {
+        root_uri: Some(root_uri),
+        capabilities: lsp_types::ClientCapabilities {
+            text_document: Some(lsp_types::TextDocumentClientCapabilities {
+                document_symbol: Some(lsp_types::DocumentSymbolClientCapabilities {
+                    hierarchical_document_symbol_support: Some(true),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
-//     input.write_all(&initialize_request).await?;
-
-//     let response = get_next_response(output).await?;
-
-//     let msg = get_response_result::<InitializeResult>(&response)?
-//         .response
-//         .unwrap();
-
-//     let initialized_params = lsp_types::InitializedParams {};
-//     let initialized_request = build_notification("initialized", &Some(initialized_params));
-//     input.write_all(&initialized_request).await?;
-
-//     Ok(msg)
-// }
+    client.initialize(&Some(params)).await
+}
 
 // pub async fn get_function_definitions<I, O>(
 //     input: &mut I,

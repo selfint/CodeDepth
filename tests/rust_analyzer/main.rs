@@ -1,6 +1,6 @@
 use std::{path::Path, process::Stdio, time::Duration};
 
-use lsp_types::{InitializeParams, Url};
+use lsp_types::Url;
 use tokio::process::{Child, Command};
 
 use code_depth;
@@ -18,16 +18,15 @@ async fn start_rust_analyzer() -> Child {
 
 #[tokio::test]
 async fn test_initialize() {
-    let server = start_rust_analyzer().await;
-
     let sample_project_path = Path::new(SAMPLE_PROJECT_PATH).canonicalize().unwrap();
 
     let root =
         Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
 
-    let mut client = code_depth::lsp_client::lsp_client::StdIOLspClient::new(server, root);
+    let server = start_rust_analyzer().await;
+    let mut client = code_depth::lsp_client::lsp_client::StdIOLspClient::new(server);
 
-    let response = client.initialize(&Some(InitializeParams::default())).await;
+    let response = code_depth::init(&mut client, root).await;
 
     // fail if response is err, but with nice debug info
     response.unwrap();

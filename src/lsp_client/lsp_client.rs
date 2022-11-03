@@ -11,17 +11,15 @@ use crate::lsp_client::json_rpc::_Response;
 use super::json_rpc::{self, build_request};
 
 pub struct StdIOLspClient {
-    root: Url,
     to_server: mpsc::UnboundedSender<Vec<u8>>,
     from_server: mpsc::UnboundedReceiver<Result<Value, Value>>,
 }
 
 impl StdIOLspClient {
-    pub fn new(server: Child, root: Url) -> Self {
+    pub fn new(server: Child) -> Self {
         let (to_server, from_server) = start_io_threads(server);
 
         Self {
-            root,
             to_server,
             from_server,
         }
