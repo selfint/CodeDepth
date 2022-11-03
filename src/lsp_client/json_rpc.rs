@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 pub const JSON_RPC_VERSION: f32 = 2.0;
 
 #[derive(Debug, Clone, Default, Deserialize)]
-struct _Response<T> {
+pub struct _Response<T> {
     pub id: usize,
     #[allow(dead_code)]
     pub jsonrpc: String,
