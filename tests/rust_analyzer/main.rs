@@ -24,75 +24,56 @@ async fn test_initialize() {
         Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
 
     let server = start_rust_analyzer().await;
-    let mut client = code_depth::lsp_client::lsp_client::StdIOLspClient::new(server);
+    let mut client = code_depth::lsp_client::StdIOLspClient::new(server);
 
-    let response = code_depth::init(&mut client, root).await;
-
-    // fail if response is err, but with nice debug info
-    response.unwrap();
+    code_depth::init(&mut client, root).await.unwrap();
 
     assert!(true);
 }
 
-// #[tokio::test]
-// async fn test_get_function_definitions() {
-//     let mut server = start_rust_analyzer().await;
+#[tokio::test]
+async fn test_get_function_definitions() {
+    let server = start_rust_analyzer().await;
+    let mut client = code_depth::lsp_client::StdIOLspClient::new(server);
 
-//     let stdin = server
-//         .stdin
-//         .as_mut()
-//         .take()
-//         .expect("failed to acquire stdin of server process");
+    let sample_project_path = Path::new(SAMPLE_PROJECT_PATH).canonicalize().unwrap();
 
-//     let stdout = server
-//         .stdout
-//         .as_mut()
-//         .take()
-//         .expect("failed to acquire stdout of server process");
+    let root =
+        Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
 
-//     let sample_project_path = Path::new(SAMPLE_PROJECT_PATH).canonicalize().unwrap();
+    code_depth::init(&mut client, root.clone()).await.unwrap();
 
-//     let project_url =
-//         Url::from_file_path(sample_project_path).expect("failed to convert project path to URL");
+    let definitions =
+        code_depth::get_function_definitions(&mut client, &root, Duration::from_secs(5))
+            .await
+            .unwrap();
 
-//     let response = code_depth::init(stdin, stdout, project_url.clone()).await;
+    for definition in &definitions {
+        assert_eq!(
+            definition.kind,
+            lsp_types::SymbolKind::FUNCTION,
+            "got non-function symbol"
+        );
+    }
 
-//     // fail if response is err, but with nice debug info
-//     response.unwrap();
+    let mut function_names = definitions
+        .iter()
+        .map(|s| s.name.clone())
+        .collect::<Vec<String>>();
 
-//     let definitions =
-//         code_depth::get_function_definitions(stdin, stdout, &project_url, Duration::from_secs(5))
-//             .await
-//             .unwrap();
+    function_names.sort();
 
-//     for definition in &definitions {
-//         assert_eq!(
-//             definition.kind,
-//             lsp_types::SymbolKind::FUNCTION,
-//             "got non-function symbol"
-//         );
-//     }
+    let expected_function_names = vec![
+        "fmt",
+        "foo",
+        "impl_method",
+        "in_foo",
+        "main",
+        "other_file_method",
+    ];
 
-//     let mut function_names = definitions
-//         .iter()
-//         .map(|s| s.name.clone())
-//         .collect::<Vec<String>>();
-
-//     function_names.sort();
-
-//     let expected_function_names = vec![
-//         "fmt",
-//         "foo",
-//         "impl_method",
-//         "in_foo",
-//         "main",
-//         "other_file_method",
-//     ];
-
-//     assert_eq!(function_names, expected_function_names);
-
-//     server.kill().await.expect("failed to stop rust-analyzer");
-// }
+    assert_eq!(function_names, expected_function_names);
+}
 
 // #[tokio::test]
 // async fn test_get_function_calls() {

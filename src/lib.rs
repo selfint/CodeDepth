@@ -7,19 +7,13 @@ use std::{collections::HashSet, error::Error, time::Duration};
 
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
-use lsp_types::InitializeError;
-use lsp_types::{
-    request::Request, CallHierarchyItem, InitializeResult, SymbolInformation, Url,
-    WorkspaceSymbolParams,
-};
-use tokio::io::AsyncWriteExt;
-
-// use json_rpc::{build_notification, build_request, get_next_response, get_response_result};
+use lsp_client::json_rpc::JsonRpcError;
+use lsp_types::{InitializeResult, SymbolInformation, Url, WorkspaceSymbolParams};
 
 pub async fn init(
     client: &mut lsp_client::StdIOLspClient,
     root_uri: Url,
-) -> Result<InitializeResult, InitializeError> {
+) -> Result<InitializeResult, JsonRpcError> {
     let params = lsp_types::InitializeParams {
         root_uri: Some(root_uri),
         capabilities: lsp_types::ClientCapabilities {
@@ -38,66 +32,51 @@ pub async fn init(
     client.initialize(&Some(params)).await
 }
 
-// pub async fn get_function_definitions<I, O>(
-//     input: &mut I,
-//     output: &mut O,
-//     project_root: &Url,
-//     max_duration: Duration,
-// ) -> Result<Vec<SymbolInformation>, Box<dyn Error>>
-// where
-//     I: tokio::io::AsyncWrite + std::marker::Unpin,
-//     O: tokio::io::AsyncRead + std::marker::Unpin,
-// {
-//     let retry_sleep_duration = 100;
-//     let retry_amount = max_duration.as_millis() / retry_sleep_duration;
-//     let mut retries_left = retry_amount;
+pub async fn get_function_definitions(
+    client: &mut lsp_client::StdIOLspClient,
+    project_root: &Url,
+    max_duration: Duration,
+) -> Result<Vec<SymbolInformation>, Box<dyn Error>> {
+    let retry_sleep_duration = 100;
+    let retry_amount = max_duration.as_millis() / retry_sleep_duration;
+    let mut retries_left = retry_amount;
 
-//     let params = Some(WorkspaceSymbolParams {
-//         // for rust-analyzer we need to append '#' to get function definitions
-//         // this might not be good for all LSP servers
-//         // TODO: add option to set query string by lsp server, and maybe this is the default?
-//         query: "#".into(),
-//         ..Default::default()
-//     });
+    let params = Some(WorkspaceSymbolParams {
+        // for rust-analyzer we need to append '#' to get function definitions
+        // this might not be good for all LSP servers
+        // TODO: add option to set query string by lsp server, and maybe this is the default?
+        query: "#".into(),
+        ..Default::default()
+    });
 
-//     let request = build_request(1, "workspace/symbol", &params);
+    let mut result = client.workspace_symbol(&params).await;
 
-//     input.write_all(&request).await?;
-//     let response = get_next_response(output).await?;
-//     let mut result = get_response_result::<Vec<lsp_types::SymbolInformation>>(&response)
-//         .unwrap()
-//         .response;
+    // wait for server to index project
+    // TODO: add 'lsp-server-ready' check instead of this hack
+    while let Err(e) = result {
+        // make sure the error just means the server is still indexing
+        assert_eq!(e.code, -32801, "got unexpected error from lsp server");
+        retries_left -= 1;
+        if retries_left == 0 {
+            return Err(format!("max retries exceeded: {:?}", e).into());
+        }
 
-//     // wait for server to index project
-//     // TODO: add 'lsp-server-ready' check instead of this hack
-//     while let Err(e) = result {
-//         // make sure the error just means the server is still indexing
-//         assert_eq!(e.code, -32801, "got unexpected error from lsp server");
-//         retries_left -= 1;
-//         if retries_left == 0 {
-//             return Err(format!("max retries exceeded: {:?}", e).into());
-//         }
+        std::thread::sleep(Duration::from_millis(retry_sleep_duration as u64));
 
-//         std::thread::sleep(Duration::from_millis(retry_sleep_duration as u64));
+        result = client.workspace_symbol(&params).await;
+    }
 
-//         input.write_all(&request).await?;
-//         let response = get_next_response(output).await?;
-//         result = get_response_result::<Vec<lsp_types::SymbolInformation>>(&response)
-//             .unwrap()
-//             .response;
-//     }
+    let symbols = result.unwrap();
 
-//     let symbols = result.unwrap();
+    let function_definitions = symbols
+        .iter()
+        .filter(|&s| s.kind == lsp_types::SymbolKind::FUNCTION)
+        .filter(|&s| s.location.uri.as_str().starts_with(project_root.as_str()))
+        .map(|s| s.to_owned())
+        .collect::<Vec<SymbolInformation>>();
 
-//     let function_definitions = symbols
-//         .iter()
-//         .filter(|&s| s.kind == lsp_types::SymbolKind::FUNCTION)
-//         .filter(|&s| s.location.uri.as_str().starts_with(project_root.as_str()))
-//         .map(|s| s.to_owned())
-//         .collect::<Vec<SymbolInformation>>();
-
-//     Ok(function_definitions)
-// }
+    Ok(function_definitions)
+}
 
 // pub async fn get_function_calls<I, O>(
 //     input: &mut I,
