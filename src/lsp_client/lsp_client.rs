@@ -62,6 +62,7 @@ impl LspClient {
 
         loop {
             if let Some(response) = self.from_server.recv().await {
+                dbg!(&response);
                 match response {
                     Ok(out) => match serde_json::from_value::<_Response<R::Result>>(out) {
                         Ok(result) => {
