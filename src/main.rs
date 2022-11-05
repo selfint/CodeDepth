@@ -2,15 +2,24 @@ use std::{env, path::Path, process::Stdio, time::Duration};
 
 use code_depth::lsp_client::LspClient;
 use lsp_types::Url;
+use serde_json::json;
 use tokio::process::Command;
 
 async fn start_lang_server(exe: &str) -> LspClient {
-    let server = Command::new(exe)
+    let parts = exe.split_ascii_whitespace().collect::<Vec<_>>();
+
+    let mut server = Command::new(parts[0]);
+
+    let mut server = server
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to start rust-analyzer");
+        .stderr(Stdio::piped());
+
+    if parts.len() > 1 {
+        server = server.args(parts.iter().skip(1).collect::<Vec<_>>())
+    };
+
+    let server = server.spawn().expect("failed to start rust-analyzer");
 
     LspClient::stdio_client(server)
 }
@@ -44,38 +53,19 @@ async fn main() {
 
     let depths = code_depth::get_function_depths(calls);
 
-    let short_depths: Vec<_> = depths
-        .iter()
-        .map(|(s, t)| {
-            (
-                format!(
-                    "{}:{}",
-                    Path::new(s.uri.path())
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap(),
-                    s.name,
-                ),
-                t.iter()
-                    .map(|(r, d)| {
-                        (
-                            format!(
-                                "{}:{}",
-                                Path::new(r.uri.path())
-                                    .file_name()
-                                    .unwrap()
-                                    .to_str()
-                                    .unwrap(),
-                                r.name
-                            ),
-                            d,
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect();
+    let mut results_json = json!({});
 
-    println!("{:?}", short_depths);
+    for (item, item_depths_from_roots) in depths {
+        let item_name = format!("{}:{}", item.uri.as_str(), item.name);
+        let mut root_depths = vec![];
+
+        for (root, depth) in item_depths_from_roots {
+            let root_name = format!("{}:{}", root.uri.as_str(), root.name);
+            root_depths.push((root_name, depth));
+        }
+
+        results_json[item_name] = serde_json::to_value(&root_depths).unwrap();
+    }
+
+    println!("{}", serde_json::to_string_pretty(&results_json).unwrap());
 }
