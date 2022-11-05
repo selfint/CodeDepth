@@ -8,10 +8,13 @@ use std::{collections::HashSet, error::Error, time::Duration};
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
 use lsp_client::json_rpc::JsonRpcError;
-use lsp_types::{InitializeResult, SymbolInformation, Url, WorkspaceSymbolParams};
+
+use lsp_types::{
+    CallHierarchyItem, InitializeResult, SymbolInformation, Url, WorkspaceSymbolParams,
+};
 
 pub async fn init(
-    client: &mut lsp_client::StdIOLspClient,
+    client: &mut lsp_client::LspClient,
     root_uri: Url,
 ) -> Result<InitializeResult, JsonRpcError> {
     let params = lsp_types::InitializeParams {
@@ -29,11 +32,11 @@ pub async fn init(
         ..Default::default()
     };
 
-    client.initialize(&Some(params)).await
+    client.initialize(&params).await
 }
 
 pub async fn get_function_definitions(
-    client: &mut lsp_client::StdIOLspClient,
+    client: &mut lsp_client::LspClient,
     project_root: &Url,
     max_duration: Duration,
 ) -> Result<Vec<SymbolInformation>, Box<dyn Error>> {
@@ -41,13 +44,13 @@ pub async fn get_function_definitions(
     let retry_amount = max_duration.as_millis() / retry_sleep_duration;
     let mut retries_left = retry_amount;
 
-    let params = Some(WorkspaceSymbolParams {
+    let params = WorkspaceSymbolParams {
         // for rust-analyzer we need to append '#' to get function definitions
         // this might not be good for all LSP servers
         // TODO: add option to set query string by lsp server, and maybe this is the default?
         query: "#".into(),
         ..Default::default()
-    });
+    };
 
     let mut result = client.workspace_symbol(&params).await;
 
@@ -66,7 +69,7 @@ pub async fn get_function_definitions(
         result = client.workspace_symbol(&params).await;
     }
 
-    let symbols = result.unwrap();
+    let symbols = result.unwrap().expect("got no symbols in workspace");
 
     let function_definitions = symbols
         .iter()
@@ -78,181 +81,139 @@ pub async fn get_function_definitions(
     Ok(function_definitions)
 }
 
-// pub async fn get_function_calls<I, O>(
-//     input: &mut I,
-//     output: &mut O,
-//     definitions: &Vec<SymbolInformation>,
-//     project_root: &Url,
-// ) -> Result<Vec<(CallHierarchyItem, CallHierarchyItem)>, Box<dyn Error>>
-// where
-//     I: tokio::io::AsyncWrite + std::marker::Unpin,
-//     O: tokio::io::AsyncRead + std::marker::Unpin,
-// {
-//     // get exact location of each definition's name
-//     let mut definition_files = HashSet::new();
+pub async fn get_function_calls(
+    client: &mut lsp_client::LspClient,
+    definitions: &Vec<SymbolInformation>,
+    project_root: &Url,
+) -> Result<Vec<(CallHierarchyItem, CallHierarchyItem)>, Box<dyn Error>> {
+    // get exact location of each definition's name
+    let mut definition_files = HashSet::new();
 
-//     // build CallHierarchyItems from definition symbols
-//     for definition in definitions {
-//         definition_files.insert(definition.location.uri.clone());
-//     }
+    // build CallHierarchyItems from definition symbols
+    for definition in definitions {
+        definition_files.insert(definition.location.uri.clone());
+    }
 
-//     let mut exact_definitions = vec![];
+    let mut exact_definitions = vec![];
 
-//     let mut request_id = 2;
-//     for file in definition_files.iter() {
-//         // get file symbols
-//         let params = Some(lsp_types::DocumentSymbolParams {
-//             text_document: lsp_types::TextDocumentIdentifier { uri: file.clone() },
-//             partial_result_params: lsp_types::PartialResultParams::default(),
-//             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
-//         });
+    for file in definition_files.iter() {
+        // get file symbols
+        let params = lsp_types::DocumentSymbolParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file.clone() },
+            partial_result_params: lsp_types::PartialResultParams::default(),
+            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
+        };
 
-//         let request = build_request(
-//             request_id,
-//             lsp_types::request::DocumentSymbolRequest::METHOD,
-//             &params,
-//         );
+        let result = client.document_symbol(&params).await.unwrap().unwrap();
 
-//         input.write_all(&request).await?;
+        match result {
+            // we need DocumentSymbol for the precise location of the function name
+            lsp_types::DocumentSymbolResponse::Flat(_) => return Err("got flat".into()),
+            lsp_types::DocumentSymbolResponse::Nested(symbols) => {
+                update_exact_definitions(symbols, file, &mut exact_definitions);
+            }
+        }
+    }
 
-//         let response = get_next_response(output).await?;
+    let mut calls = vec![];
+    for (file, definition) in exact_definitions {
+        // get definition call hierarchy item
+        let target_item = lsp_types::CallHierarchyItem {
+            name: definition.name,
+            kind: definition.kind,
+            tags: definition.tags,
+            detail: definition.detail,
+            uri: file.clone(),
+            range: definition.range,
+            selection_range: definition.selection_range,
+            data: None,
+        };
 
-//         let result = get_response_result::<lsp_types::DocumentSymbolResponse>(&response)?
-//             .response
-//             .unwrap();
+        let params = lsp_types::CallHierarchyIncomingCallsParams {
+            item: target_item.clone(),
+            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
+            partial_result_params: lsp_types::PartialResultParams::default(),
+        };
 
-//         match result {
-//             // we need DocumentSymbol for the precise location of the function name
-//             lsp_types::DocumentSymbolResponse::Flat(_) => return Err("got flat".into()),
-//             lsp_types::DocumentSymbolResponse::Nested(symbols) => {
-//                 update_exact_definitions(symbols, file, &mut exact_definitions);
-//             }
-//         }
+        let result = client.call_hierarchy_incoming_calls(&params).await;
 
-//         request_id += 1;
-//     }
+        match result {
+            Ok(result) => {
+                if let Some(response) = result {
+                    for source_item in response {
+                        // filter out calls from outside our project
+                        if source_item
+                            .from
+                            .uri
+                            .as_str()
+                            .starts_with(project_root.as_str())
+                        {
+                            calls.push((source_item.from, target_item.clone()));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                dbg!(format!(
+                    "got jsonRpcError for {:?}: {:?} {:?}",
+                    (
+                        file.as_str(),
+                        &target_item.name,
+                        &target_item.selection_range.start
+                    ),
+                    e.code,
+                    e.message.chars().take(100).collect::<String>()
+                ));
+            }
+        }
+    }
 
-//     let mut calls = vec![];
-//     for (file, definition) in exact_definitions {
-//         // get definition call hierarchy item
-//         let target_item = lsp_types::CallHierarchyItem {
-//             name: definition.name,
-//             kind: definition.kind,
-//             tags: definition.tags,
-//             detail: definition.detail,
-//             uri: file.clone(),
-//             range: definition.range,
-//             selection_range: definition.selection_range,
-//             data: None,
-//         };
-//         let params = Some(lsp_types::CallHierarchyIncomingCallsParams {
-//             item: target_item.clone(),
-//             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
-//             partial_result_params: lsp_types::PartialResultParams::default(),
-//         });
+    Ok(calls)
+}
 
-//         let request = build_request(
-//             request_id,
-//             lsp_types::request::CallHierarchyIncomingCalls::METHOD,
-//             &params,
-//         );
+fn update_exact_definitions(
+    symbols: Vec<lsp_types::DocumentSymbol>,
+    file: &Url,
+    exact_definitions: &mut Vec<(Url, lsp_types::DocumentSymbol)>,
+) {
+    for symbol in symbols {
+        if symbol.kind == lsp_types::SymbolKind::FUNCTION {
+            exact_definitions.push((file.to_owned(), symbol.clone()));
+        }
 
-//         input.write_all(&request).await?;
+        if let Some(children) = symbol.children {
+            update_exact_definitions(children, file, exact_definitions);
+        }
+    }
+}
 
-//         let response = get_next_response(output).await?;
+pub fn get_function_depths(
+    calls: Vec<(CallHierarchyItem, CallHierarchyItem)>,
+) -> Vec<(CallHierarchyItem, Vec<(CallHierarchyItem, usize)>)> {
+    let hashable_calls = calls
+        .iter()
+        .map(|(s, t)| (s.clone().into(), t.clone().into()))
+        .collect();
 
-//         let result = get_response_result::<Vec<lsp_types::CallHierarchyIncomingCall>>(&response);
+    let depths_by_root = get_depths(&hashable_calls);
 
-//         match result {
-//             Ok(result) => match result.response {
-//                 Ok(response) => {
-//                     for source_item in response {
-//                         // filter out calls from outside our project
-//                         if source_item
-//                             .from
-//                             .uri
-//                             .as_str()
-//                             .starts_with(project_root.as_str())
-//                         {
-//                             calls.push((source_item.from, target_item.clone()));
-//                         }
-//                     }
-//                 }
-//                 Err(e) => {
-//                     dbg!(format!(
-//                         "got jsonRpcError for {:?}: {:?} {:?}",
-//                         (
-//                             file.as_str(),
-//                             &target_item.name,
-//                             &target_item.selection_range.start
-//                         ),
-//                         e.code,
-//                         e.message.chars().take(100).collect::<String>()
-//                     ));
-//                 }
-//             },
-//             Err(e) => {
-//                 dbg!(format!(
-//                     "got error for {:?}: {:?}",
-//                     (
-//                         file.as_str(),
-//                         &target_item.name,
-//                         &target_item.selection_range.start
-//                     ),
-//                     e,
-//                 ));
-//             }
-//         }
+    let mut depths_from_roots: HashMap<HashableCallHierarchyItem, Vec<(CallHierarchyItem, usize)>> =
+        HashMap::new();
 
-//         request_id += 1;
-//     }
+    for (root, root_depths) in depths_by_root {
+        for (child, depth) in root_depths {
+            depths_from_roots
+                .entry(child)
+                .or_insert(vec![])
+                .push((root.clone().into(), depth));
+        }
+    }
 
-//     Ok(calls)
-// }
+    // TODO: what is the functional way to implement this (without clone)?
+    let mut r = vec![];
+    for (k, v) in depths_from_roots {
+        r.push((k.into(), v));
+    }
 
-// fn update_exact_definitions(
-//     symbols: Vec<lsp_types::DocumentSymbol>,
-//     file: &Url,
-//     exact_definitions: &mut Vec<(Url, lsp_types::DocumentSymbol)>,
-// ) {
-//     for symbol in symbols {
-//         if symbol.kind == lsp_types::SymbolKind::FUNCTION {
-//             exact_definitions.push((file.to_owned(), symbol.clone()));
-//         }
-
-//         if let Some(children) = symbol.children {
-//             update_exact_definitions(children, file, exact_definitions);
-//         }
-//     }
-// }
-
-// pub fn get_function_depths(
-//     calls: Vec<(CallHierarchyItem, CallHierarchyItem)>,
-// ) -> Vec<(CallHierarchyItem, Vec<(CallHierarchyItem, usize)>)> {
-//     let hashable_calls = calls
-//         .iter()
-//         .map(|(s, t)| (s.clone().into(), t.clone().into()))
-//         .collect();
-
-//     let depths_by_root = get_depths(&hashable_calls);
-
-//     let mut depths_from_roots: HashMap<HashableCallHierarchyItem, Vec<(CallHierarchyItem, usize)>> =
-//         HashMap::new();
-
-//     for (root, root_depths) in depths_by_root {
-//         for (child, depth) in root_depths {
-//             depths_from_roots
-//                 .entry(child)
-//                 .or_insert(vec![])
-//                 .push((root.clone().into(), depth));
-//         }
-//     }
-
-//     // TODO: what is the functional way to implement this (without clone)?
-//     let mut r = vec![];
-//     for (k, v) in depths_from_roots {
-//         r.push((k.into(), v));
-//     }
-
-//     r
-// }
+    r
+}
