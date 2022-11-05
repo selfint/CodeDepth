@@ -85,7 +85,7 @@ where
     // match content-length: \d+
     // and also match the separating \r\n\r\n to the actual content
     // so that when we read the message we just read 'content-length' bytes
-    let re = Regex::new(r"Content-Length: (\d+)\r\n\r\n").unwrap();
+    let re = Regex::new(r"Content-Length: (\d+)(?:\r\nContent-Type: [^\r]*)?\r\n\r\n").unwrap();
     let mut buf = vec![];
 
     // get content-length
