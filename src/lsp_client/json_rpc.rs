@@ -1,14 +1,15 @@
 use std::error::Error;
 
+use lsp_types::{notification::Notification, request::Request};
 use regex::Regex;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 pub const JSON_RPC_VERSION: f32 = 2.0;
 
 #[derive(Debug, Clone, Default, Deserialize)]
-struct _Response<T> {
+pub struct _Response<T> {
     pub id: usize,
     #[allow(dead_code)]
     pub jsonrpc: String,
@@ -48,16 +49,13 @@ pub struct JsonRpcError {
     pub message: String,
 }
 
-pub fn build_request<T: Serialize>(id: usize, method: &str, params: &Option<T>) -> Vec<u8> {
-    let mut j = json!({
+pub fn build_request<R: Request>(id: usize, params: &R::Params) -> Vec<u8> {
+    let j = json!({
             "jsonrpc": JSON_RPC_VERSION,
+            "method": R::METHOD,
+            "params": serde_json::to_value(params).expect("failed to serialize params"),
             "id": id,
-            "method": method,
     });
-
-    if let Some(params) = params {
-        j["params"] = serde_json::to_value(params).expect("failed to serialize params");
-    }
 
     let json_str = j.to_string();
 
@@ -66,15 +64,12 @@ pub fn build_request<T: Serialize>(id: usize, method: &str, params: &Option<T>) 
         .into()
 }
 
-pub fn build_notification<T: Serialize>(method: &str, params: &Option<T>) -> Vec<u8> {
-    let mut j = json!({
+pub fn build_notification<N: Notification>(params: &N::Params) -> Vec<u8> {
+    let j = json!({
             "jsonrpc": JSON_RPC_VERSION,
-            "method": method,
+            "method": N::METHOD,
+            "params": serde_json::to_value(params).expect("failed to serialize params"),
     });
-
-    if let Some(params) = params {
-        j["params"] = serde_json::to_value(params).expect("failed to serialize params");
-    }
 
     let json_str = j.to_string();
 

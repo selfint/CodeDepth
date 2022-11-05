@@ -1,30 +1,23 @@
 mod graph_util;
 mod hashable_call_hierarchy_item;
-mod json_rpc;
+pub mod lsp_client;
 
 use std::collections::HashMap;
 use std::{collections::HashSet, error::Error, time::Duration};
 
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
+use lsp_client::json_rpc::JsonRpcError;
+
 use lsp_types::{
-    request::Request, CallHierarchyItem, InitializeResult, SymbolInformation, Url,
-    WorkspaceSymbolParams,
+    CallHierarchyItem, InitializeResult, SymbolInformation, Url, WorkspaceSymbolParams,
 };
-use tokio::io::AsyncWriteExt;
 
-use json_rpc::{build_notification, build_request, get_next_response, get_response_result};
-
-pub async fn init<I, O>(
-    input: &mut I,
-    output: &mut O,
+pub async fn init(
+    client: &mut lsp_client::LspClient,
     root_uri: Url,
-) -> Result<InitializeResult, Box<dyn Error>>
-where
-    I: tokio::io::AsyncWrite + std::marker::Unpin,
-    O: tokio::io::AsyncRead + std::marker::Unpin,
-{
-    let initialize_params = lsp_types::InitializeParams {
+) -> Result<InitializeResult, JsonRpcError> {
+    let params = lsp_types::InitializeParams {
         root_uri: Some(root_uri),
         capabilities: lsp_types::ClientCapabilities {
             text_document: Some(lsp_types::TextDocumentClientCapabilities {
@@ -38,52 +31,28 @@ where
         },
         ..Default::default()
     };
-    let initialize_request = build_request(0, "initialize", &Some(initialize_params));
 
-    input.write_all(&initialize_request).await?;
-
-    let response = get_next_response(output).await?;
-
-    let msg = get_response_result::<InitializeResult>(&response)?
-        .response
-        .unwrap();
-
-    let initialized_params = lsp_types::InitializedParams {};
-    let initialized_request = build_notification("initialized", &Some(initialized_params));
-    input.write_all(&initialized_request).await?;
-
-    Ok(msg)
+    client.initialize(&params).await
 }
 
-pub async fn get_function_definitions<I, O>(
-    input: &mut I,
-    output: &mut O,
+pub async fn get_function_definitions(
+    client: &mut lsp_client::LspClient,
     project_root: &Url,
     max_duration: Duration,
-) -> Result<Vec<SymbolInformation>, Box<dyn Error>>
-where
-    I: tokio::io::AsyncWrite + std::marker::Unpin,
-    O: tokio::io::AsyncRead + std::marker::Unpin,
-{
+) -> Result<Vec<SymbolInformation>, Box<dyn Error>> {
     let retry_sleep_duration = 100;
     let retry_amount = max_duration.as_millis() / retry_sleep_duration;
     let mut retries_left = retry_amount;
 
-    let params = Some(WorkspaceSymbolParams {
+    let params = WorkspaceSymbolParams {
         // for rust-analyzer we need to append '#' to get function definitions
         // this might not be good for all LSP servers
         // TODO: add option to set query string by lsp server, and maybe this is the default?
         query: "#".into(),
         ..Default::default()
-    });
+    };
 
-    let request = build_request(1, "workspace/symbol", &params);
-
-    input.write_all(&request).await?;
-    let response = get_next_response(output).await?;
-    let mut result = get_response_result::<Vec<lsp_types::SymbolInformation>>(&response)
-        .unwrap()
-        .response;
+    let mut result = client.workspace_symbol(&params).await;
 
     // wait for server to index project
     // TODO: add 'lsp-server-ready' check instead of this hack
@@ -97,14 +66,10 @@ where
 
         std::thread::sleep(Duration::from_millis(retry_sleep_duration as u64));
 
-        input.write_all(&request).await?;
-        let response = get_next_response(output).await?;
-        result = get_response_result::<Vec<lsp_types::SymbolInformation>>(&response)
-            .unwrap()
-            .response;
+        result = client.workspace_symbol(&params).await;
     }
 
-    let symbols = result.unwrap();
+    let symbols = result.unwrap().expect("got no symbols in workspace");
 
     let function_definitions = symbols
         .iter()
@@ -116,16 +81,11 @@ where
     Ok(function_definitions)
 }
 
-pub async fn get_function_calls<I, O>(
-    input: &mut I,
-    output: &mut O,
+pub async fn get_function_calls(
+    client: &mut lsp_client::LspClient,
     definitions: &Vec<SymbolInformation>,
     project_root: &Url,
-) -> Result<Vec<(CallHierarchyItem, CallHierarchyItem)>, Box<dyn Error>>
-where
-    I: tokio::io::AsyncWrite + std::marker::Unpin,
-    O: tokio::io::AsyncRead + std::marker::Unpin,
-{
+) -> Result<Vec<(CallHierarchyItem, CallHierarchyItem)>, Box<dyn Error>> {
     // get exact location of each definition's name
     let mut definition_files = HashSet::new();
 
@@ -136,28 +96,15 @@ where
 
     let mut exact_definitions = vec![];
 
-    let mut request_id = 2;
     for file in definition_files.iter() {
         // get file symbols
-        let params = Some(lsp_types::DocumentSymbolParams {
+        let params = lsp_types::DocumentSymbolParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file.clone() },
             partial_result_params: lsp_types::PartialResultParams::default(),
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
-        });
+        };
 
-        let request = build_request(
-            request_id,
-            lsp_types::request::DocumentSymbolRequest::METHOD,
-            &params,
-        );
-
-        input.write_all(&request).await?;
-
-        let response = get_next_response(output).await?;
-
-        let result = get_response_result::<lsp_types::DocumentSymbolResponse>(&response)?
-            .response
-            .unwrap();
+        let result = client.document_symbol(&params).await.unwrap().unwrap();
 
         match result {
             // we need DocumentSymbol for the precise location of the function name
@@ -166,8 +113,6 @@ where
                 update_exact_definitions(symbols, file, &mut exact_definitions);
             }
         }
-
-        request_id += 1;
     }
 
     let mut calls = vec![];
@@ -183,27 +128,18 @@ where
             selection_range: definition.selection_range,
             data: None,
         };
-        let params = Some(lsp_types::CallHierarchyIncomingCallsParams {
+
+        let params = lsp_types::CallHierarchyIncomingCallsParams {
             item: target_item.clone(),
             work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
             partial_result_params: lsp_types::PartialResultParams::default(),
-        });
+        };
 
-        let request = build_request(
-            request_id,
-            lsp_types::request::CallHierarchyIncomingCalls::METHOD,
-            &params,
-        );
-
-        input.write_all(&request).await?;
-
-        let response = get_next_response(output).await?;
-
-        let result = get_response_result::<Vec<lsp_types::CallHierarchyIncomingCall>>(&response);
+        let result = client.call_hierarchy_incoming_calls(&params).await;
 
         match result {
-            Ok(result) => match result.response {
-                Ok(response) => {
+            Ok(result) => {
+                if let Some(response) = result {
                     for source_item in response {
                         // filter out calls from outside our project
                         if source_item
@@ -216,33 +152,20 @@ where
                         }
                     }
                 }
-                Err(e) => {
-                    dbg!(format!(
-                        "got jsonRpcError for {:?}: {:?} {:?}",
-                        (
-                            file.as_str(),
-                            &target_item.name,
-                            &target_item.selection_range.start
-                        ),
-                        e.code,
-                        e.message.chars().take(100).collect::<String>()
-                    ));
-                }
-            },
+            }
             Err(e) => {
                 dbg!(format!(
-                    "got error for {:?}: {:?}",
+                    "got jsonRpcError for {:?}: {:?} {:?}",
                     (
                         file.as_str(),
                         &target_item.name,
                         &target_item.selection_range.start
                     ),
-                    e,
+                    e.code,
+                    e.message.chars().take(100).collect::<String>()
                 ));
             }
         }
-
-        request_id += 1;
     }
 
     Ok(calls)
