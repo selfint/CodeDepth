@@ -34,7 +34,7 @@ async fn main() {
     let test_re = if let Some(test_str) = args.get(3) {
         Regex::new(test_str).expect(&format!("invalid regex: '{}'", test_str))
     } else {
-        Regex::new(r#".*test.*"#).unwrap()
+        Regex::new(".*test.*").unwrap()
     };
 
     let mut client = start_lang_server(&lang_server_exe).await;
