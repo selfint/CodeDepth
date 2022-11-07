@@ -142,56 +142,37 @@ async fn test_get_function_depths() {
 
     let depths = code_depth::get_function_depths(calls);
 
-    let short_depths: Vec<_> = depths
-        .iter()
-        .map(|(s, t)| {
-            (
-                format!(
-                    "method {}:{} depths",
-                    Path::new(s.uri.path())
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap(),
-                    s.name,
-                ),
-                t.iter().fold("".to_string(), |mut a, b| {
-                    a += "root ";
-                    a += Path::new(b.0.uri.path())
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap();
-                    a += &format!(":{} - {}", b.0.name, b.1);
+    let short_item_depths = code_depth::build_short_fn_depths(&root, &depths);
 
-                    a
-                }),
-            )
-        })
-        .collect();
-
-    assert!(short_depths.contains(&(
-        "method other_file.rs:other_file_method depths".into(),
-        "root main.rs:main - 2".into(),
+    assert!(short_item_depths.contains(&(
+        "/src/other_file.rs:other_file_method".into(),
+        vec![vec![
+            "/src/main.rs:main".into(),
+            "/src/main.rs:impl_method".into(),
+            "/src/other_file.rs:other_file_method".into(),
+        ],],
     )));
-
-    assert!(short_depths.contains(&(
-        "method main.rs:in_foo depths".into(),
-        "root main.rs:main - 2".into(),
+    assert!(short_item_depths.contains(&(
+        "/src/main.rs:in_foo".into(),
+        vec![vec![
+            "/src/main.rs:main".into(),
+            "/src/main.rs:foo".into(),
+            "/src/main.rs:in_foo".into(),
+        ],],
     )));
-
-    assert!(short_depths.contains(&(
-        "method main.rs:impl_method depths".into(),
-        "root main.rs:main - 1".into(),
+    assert!(short_item_depths.contains(&(
+        "/src/main.rs:impl_method".into(),
+        vec![vec![
+            "/src/main.rs:main".into(),
+            "/src/main.rs:impl_method".into(),
+        ],],
     )));
-
-    assert!(short_depths.contains(&(
-        "method main.rs:foo depths".into(),
-        "root main.rs:main - 1".into(),
+    assert!(short_item_depths.contains(&(
+        "/src/main.rs:foo".into(),
+        vec![vec!["/src/main.rs:main".into(), "/src/main.rs:foo".into(),],],
     )));
-
-    assert!(short_depths.contains(&(
-        "method main.rs:main depths".into(),
-        "root main.rs:main - 0".into(),
+    assert!(short_item_depths.contains(&(
+        "/src/main.rs:main".into(),
+        vec![vec!["/src/main.rs:main".into(),],],
     )));
 }

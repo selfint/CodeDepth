@@ -62,39 +62,39 @@ async fn main() {
     let mut results_json = json!({});
 
     // find all items with different depths
-    for (item, item_depths_from_roots) in depths {
-        let item_name = format!(
-            "{}:{}",
-            item.uri.as_str().trim_start_matches(&project_url.as_str()),
-            item.name
-        );
-
+    for (item_name, item_depths_from_roots) in
+        code_depth::build_short_fn_depths(&project_url, &depths)
+    {
         // ignore test items
         if test_re.captures(&item_name).is_some() {
             continue;
         }
 
-        let mut root_depths = json!({});
         let mut depths = HashSet::new();
 
-        for (root, depth) in item_depths_from_roots {
-            let root_name = format!(
-                "{}:{}",
-                root.uri.as_str().trim_start_matches(&project_url.as_str()),
-                root.name
-            );
+        let mut non_test_paths = vec![];
 
-            // ignore test roots
-            if test_re.captures(&root_name).is_some() {
+        for path in &item_depths_from_roots {
+            let mut is_test_path = false;
+
+            // ignore test paths
+            for hop in path {
+                if test_re.captures(&hop).is_some() {
+                    is_test_path = true;
+                    break;
+                }
+            }
+
+            if is_test_path {
                 continue;
             }
 
-            root_depths[root_name] = serde_json::to_value(depth).unwrap();
-            depths.insert(depth);
+            non_test_paths.push(path);
+            depths.insert(path.len());
         }
 
         if depths.len() > 1 {
-            results_json[item_name] = serde_json::to_value(&root_depths).unwrap();
+            results_json[item_name] = serde_json::to_value(non_test_paths).unwrap();
         }
     }
 
