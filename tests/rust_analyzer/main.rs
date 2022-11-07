@@ -3,7 +3,7 @@ use std::{path::Path, process::Stdio, time::Duration};
 use lsp_types::Url;
 use tokio::process::Command;
 
-use code_depth::{self, lsp_client::LspClient};
+use code_depth::{self, lsp::LspClient};
 
 const SAMPLE_PROJECT_PATH: &str = "tests/rust_analyzer/sample_rust_project";
 
@@ -30,8 +30,6 @@ async fn test_initialize() {
     let root = get_sample_root();
 
     code_depth::init(&mut client, root).await.unwrap();
-
-    assert!(true);
 }
 
 #[tokio::test]

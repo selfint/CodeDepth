@@ -1,20 +1,20 @@
 mod graph_util;
 mod hashable_call_hierarchy_item;
-pub mod lsp_client;
+pub mod lsp;
 
 use std::collections::HashMap;
 use std::{collections::HashSet, error::Error, time::Duration};
 
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
-use lsp_client::json_rpc::JsonRpcError;
+use lsp::json_rpc::JsonRpcError;
 
 use lsp_types::{
     CallHierarchyItem, InitializeResult, SymbolInformation, Url, WorkspaceSymbolParams,
 };
 
 pub async fn init(
-    client: &mut lsp_client::LspClient,
+    client: &mut lsp::LspClient,
     root_uri: Url,
 ) -> Result<InitializeResult, JsonRpcError> {
     let params = lsp_types::InitializeParams {
@@ -36,7 +36,7 @@ pub async fn init(
 }
 
 pub async fn get_function_definitions(
-    client: &mut lsp_client::LspClient,
+    client: &mut lsp::LspClient,
     project_root: &Url,
     max_duration: Duration,
 ) -> Result<Vec<SymbolInformation>, Box<dyn Error>> {
@@ -82,7 +82,7 @@ pub async fn get_function_definitions(
 }
 
 pub async fn get_function_calls(
-    client: &mut lsp_client::LspClient,
+    client: &mut lsp::LspClient,
     definitions: &Vec<SymbolInformation>,
     project_root: &Url,
 ) -> Result<Vec<(CallHierarchyItem, CallHierarchyItem)>, Box<dyn Error>> {

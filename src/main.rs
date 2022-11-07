@@ -1,6 +1,6 @@
 use std::{collections::HashSet, env, path::Path, process::Stdio, time::Duration};
 
-use code_depth::lsp_client::LspClient;
+use code_depth::lsp::LspClient;
 use lsp_types::Url;
 use regex::Regex;
 use serde_json::json;
@@ -32,12 +32,12 @@ async fn main() {
     let project_path = Path::new(args.get(1).expect("missing argument <project_path>"));
     let lang_server_exe = args.get(2).expect("missing argument <lang_server_exe>");
     let test_re = if let Some(test_str) = args.get(3) {
-        Regex::new(test_str).expect(&format!("invalid regex: '{}'", test_str))
+        Regex::new(test_str).unwrap_or_else(|_| panic!("invalid regex: '{}'", test_str))
     } else {
         Regex::new(".*test.*").unwrap()
     };
 
-    let mut client = start_lang_server(&lang_server_exe).await;
+    let mut client = start_lang_server(lang_server_exe).await;
 
     let project_path = project_path.canonicalize().unwrap();
 
@@ -79,7 +79,7 @@ async fn main() {
 
             // ignore test paths
             for hop in path {
-                if test_re.captures(&hop).is_some() {
+                if test_re.captures(hop).is_some() {
                     is_test_path = true;
                     break;
                 }

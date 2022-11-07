@@ -6,7 +6,8 @@ use std::{
 
 use petgraph::Graph;
 
-pub fn get_depths<T>(edges: &Vec<(T, T)>) -> Vec<(T, Vec<(T, Vec<T>)>)>
+type ItemPathFromRoot<T> = (T, Vec<T>);
+pub fn get_depths<T>(edges: &Vec<(T, T)>) -> Vec<(T, Vec<ItemPathFromRoot<T>>)>
 where
     T: Clone + Hash + Eq + Debug,
 {
@@ -15,7 +16,7 @@ where
     let targets = edges.iter().map(|e| e.1.clone()).collect::<HashSet<_>>();
     let mut roots = HashSet::new();
     for (s, _) in edges {
-        if !targets.contains(&s) {
+        if !targets.contains(s) {
             roots.insert(s);
         }
     }
@@ -60,7 +61,7 @@ where
         for path in paths {
             let path_head = *path.last().unwrap();
             if !visited.contains(&path_head) {
-                graph_depths.push((path_head.clone(), path.clone()));
+                graph_depths.push((path_head, path.clone()));
                 visited.insert(path_head);
 
                 for neighbor in graph.neighbors(path_head) {
