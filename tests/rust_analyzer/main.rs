@@ -25,67 +25,22 @@ fn get_sample_root() -> Url {
 }
 
 #[tokio::test]
-async fn test_initialize() {
+async fn test_lsp_client() {
     let mut client = start_std_io_lsp_client();
     let root = get_sample_root();
 
-    code_depth::init(&mut client, root).await.unwrap();
-}
-
-#[tokio::test]
-async fn test_get_function_definitions() {
-    let mut client = start_std_io_lsp_client();
-    let root = get_sample_root();
-
-    code_depth::init(&mut client, root.clone()).await.unwrap();
+    code_depth::init(&mut client, root.clone())
+        .await
+        .expect("init failed");
 
     let definitions =
         code_depth::get_function_definitions(&mut client, &root, Duration::from_secs(5))
             .await
-            .unwrap();
-
-    for definition in &definitions {
-        assert_eq!(
-            definition.kind,
-            lsp_types::SymbolKind::FUNCTION,
-            "got non-function symbol"
-        );
-    }
-
-    let mut function_names = definitions
-        .iter()
-        .map(|s| s.name.clone())
-        .collect::<Vec<String>>();
-
-    function_names.sort();
-
-    let expected_function_names = vec![
-        "fmt",
-        "foo",
-        "impl_method",
-        "in_foo",
-        "main",
-        "other_file_method",
-    ];
-
-    assert_eq!(function_names, expected_function_names);
-}
-
-#[tokio::test]
-async fn test_get_function_calls() {
-    let mut client = start_std_io_lsp_client();
-    let root = get_sample_root();
-
-    code_depth::init(&mut client, root.clone()).await.unwrap();
-
-    let definitions =
-        code_depth::get_function_definitions(&mut client, &root, Duration::from_secs(5))
-            .await
-            .unwrap();
+            .expect("get_function_definitions failed");
 
     let calls = code_depth::get_function_calls(&mut client, &definitions, &root)
         .await
-        .unwrap();
+        .expect("get_function_calls failed");
 
     let mut short_calls: Vec<String> = calls
         .iter()
@@ -118,25 +73,9 @@ async fn test_get_function_calls() {
             "main.rs:in_foo->main.rs:impl_method",
             "main.rs:main->main.rs:foo",
             "main.rs:main->main.rs:impl_method",
-        ]
+        ],
+        "didn't find all function calls"
     );
-}
-
-#[tokio::test]
-async fn test_get_function_depths() {
-    let mut client = start_std_io_lsp_client();
-    let root = get_sample_root();
-
-    code_depth::init(&mut client, root.clone()).await.unwrap();
-
-    let definitions =
-        code_depth::get_function_definitions(&mut client, &root, Duration::from_secs(5))
-            .await
-            .unwrap();
-
-    let calls = code_depth::get_function_calls(&mut client, &definitions, &root)
-        .await
-        .unwrap();
 
     let depths = code_depth::get_function_depths(calls);
 
