@@ -1,13 +1,14 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Debug,
     hash::Hash,
 };
 
 use petgraph::Graph;
 
-pub fn get_depths<T>(edges: &Vec<(T, T)>) -> Vec<(T, Vec<(T, usize)>)>
+pub fn get_depths<T>(edges: &Vec<(T, T)>) -> Vec<(T, Vec<(T, Vec<T>)>)>
 where
-    T: Clone + Hash + Eq + std::fmt::Debug,
+    T: Clone + Hash + Eq + Debug,
 {
     // find all roots and execute a bfs from each one to get depths
     // of each node from each root
@@ -21,13 +22,13 @@ where
 
     roots
         .iter()
-        .map(|&r| (r.clone(), get_root_depths(r, edges)))
+        .map(|&r| (r.clone(), get_root_paths(r, edges)))
         .collect()
 }
 
-fn get_root_depths<T>(root: &T, edges: &Vec<(T, T)>) -> Vec<(T, usize)>
+fn get_root_paths<T>(root: &T, edges: &Vec<(T, T)>) -> Vec<(T, Vec<T>)>
 where
-    T: Clone + Hash + Eq + std::fmt::Debug,
+    T: Clone + Hash + Eq + Debug,
 {
     // build graph
     let mut to_graph_node = HashMap::new();
@@ -52,28 +53,38 @@ where
     // run bfs
     let mut graph_depths = vec![];
 
-    let mut roots = vec![*to_graph_node.get(root).unwrap()];
-    let mut depth: usize = 0;
+    let mut paths = vec![vec![*to_graph_node.get(root).unwrap()]];
     let mut visited = HashSet::new();
-    while !roots.is_empty() {
-        let mut new_roots = vec![];
-        for &r in &roots {
-            if !visited.contains(&r) {
-                graph_depths.push((r.clone(), depth));
-                visited.insert(r);
+    while !paths.is_empty() {
+        let mut new_paths = vec![];
+        for path in paths {
+            let path_head = *path.last().unwrap();
+            if !visited.contains(&path_head) {
+                graph_depths.push((path_head.clone(), path.clone()));
+                visited.insert(path_head);
 
-                new_roots.extend(graph.neighbors(r));
+                for neighbor in graph.neighbors(path_head) {
+                    let mut new_path = path.clone();
+                    new_path.push(neighbor);
+                    new_paths.push(new_path);
+                }
             }
         }
 
-        roots = new_roots;
-        depth += 1;
+        paths = new_paths;
     }
 
     // convert graph nodes to real nodes
     graph_depths
         .iter()
-        .map(|(n, d)| (graph.node_weight(*n).unwrap().clone(), *d))
+        .map(|(n, d)| {
+            (
+                graph.node_weight(*n).unwrap().clone(),
+                d.iter()
+                    .map(|p| graph.node_weight(*p).unwrap().clone())
+                    .collect::<Vec<_>>(),
+            )
+        })
         .collect::<Vec<_>>()
 }
 
@@ -85,7 +96,15 @@ mod tests {
     fn test_get_depths() {
         assert_eq!(
             get_depths(&(vec![(0, 1), (1, 2), (2, 3)])),
-            vec![(0, vec![(0, 0), (1, 1), (2, 2), (3, 3),])]
+            vec![(
+                0,
+                vec![
+                    (0, vec![0]),
+                    (1, vec![0, 1]),
+                    (2, vec![0, 1, 2]),
+                    (3, vec![0, 1, 2, 3]),
+                ]
+            )]
         );
     }
 
@@ -100,15 +119,31 @@ mod tests {
             (12, 13),
         ]);
 
-        assert!(depths.contains(&(0, vec![(0, 0), (1, 1), (2, 2), (3, 3),])));
-        assert!(depths.contains(&(10, vec![(10, 0), (11, 1), (12, 2), (13, 3),])));
+        assert!(depths.contains(&(
+            0,
+            vec![
+                (0, vec![0]),
+                (1, vec![0, 1]),
+                (2, vec![0, 1, 2]),
+                (3, vec![0, 1, 2, 3]),
+            ]
+        )));
+        assert!(depths.contains(&(
+            10,
+            vec![
+                (10, vec![10]),
+                (11, vec![10, 11]),
+                (12, vec![10, 11, 12]),
+                (13, vec![10, 11, 12, 13]),
+            ]
+        )));
     }
 
     #[test]
     fn test_get_depths_loop() {
         assert_eq!(
             get_depths(&(vec![(0, 1), (0, 2), (1, 2), (2, 1)])),
-            vec![(0, vec![(0, 0), (2, 1), (1, 1),])]
+            vec![(0, vec![(0, vec![0]), (2, vec![0, 2]), (1, vec![0, 1]),])]
         );
     }
 

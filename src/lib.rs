@@ -189,31 +189,69 @@ fn update_exact_definitions(
 
 pub fn get_function_depths(
     calls: Vec<(CallHierarchyItem, CallHierarchyItem)>,
-) -> Vec<(CallHierarchyItem, Vec<(CallHierarchyItem, usize)>)> {
+) -> Vec<(CallHierarchyItem, Vec<Vec<CallHierarchyItem>>)> {
+    // convert call items into hashable call items
     let hashable_calls = calls
         .iter()
         .map(|(s, t)| (s.clone().into(), t.clone().into()))
-        .collect();
+        .collect::<Vec<(HashableCallHierarchyItem, HashableCallHierarchyItem)>>();
 
     let depths_by_root = get_depths(&hashable_calls);
 
-    let mut depths_from_roots: HashMap<HashableCallHierarchyItem, Vec<(CallHierarchyItem, usize)>> =
-        HashMap::new();
+    // get item paths from each root
+    let mut item_paths_from_roots = HashMap::new();
+    for (_, items) in depths_by_root {
+        for (item, item_path) in items {
+            let item_path_from_root = item_paths_from_roots.entry(item).or_insert(vec![]);
 
-    for (root, root_depths) in depths_by_root {
-        for (child, depth) in root_depths {
-            depths_from_roots
-                .entry(child)
-                .or_insert(vec![])
-                .push((root.clone().into(), depth));
+            let mut converted_item_path: Vec<CallHierarchyItem> = vec![];
+            for hop in item_path {
+                converted_item_path.push(hop.into());
+            }
+
+            item_path_from_root.push(converted_item_path);
         }
     }
 
     // TODO: what is the functional way to implement this (without clone)?
     let mut r = vec![];
-    for (k, v) in depths_from_roots {
+    for (k, v) in item_paths_from_roots {
         r.push((k.into(), v));
     }
 
     r
+}
+
+pub fn build_short_fn_depths(
+    root: &Url,
+    depths: &Vec<(CallHierarchyItem, Vec<Vec<CallHierarchyItem>>)>,
+) -> Vec<(String, Vec<Vec<String>>)> {
+    let mut short_item_depths = vec![];
+
+    for (item, paths_from_roots) in depths {
+        let item_name = format!(
+            "{}:{}",
+            item.uri.as_str().trim_start_matches(&root.as_str()),
+            item.name
+        );
+
+        let mut short_paths = vec![];
+        for path in paths_from_roots {
+            let mut short_path = vec![];
+            for hop in path {
+                let hop_name = format!(
+                    "{}:{}",
+                    hop.uri.as_str().trim_start_matches(&root.as_str()),
+                    hop.name
+                );
+                short_path.push(hop_name);
+            }
+
+            short_paths.push(short_path);
+        }
+
+        short_item_depths.push((item_name, short_paths));
+    }
+
+    short_item_depths
 }
