@@ -6,11 +6,12 @@ use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-pub const JSON_RPC_VERSION: f32 = 2.0;
+pub const JSON_RPC_VERSION: &str = "2.0";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct _Response<T> {
-    pub id: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<usize>,
     #[allow(dead_code)]
     pub jsonrpc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -21,24 +22,28 @@ pub struct _Response<T> {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Response<T> {
-    pub id: usize,
+    pub id: Option<usize>,
     pub response: Result<T, JsonRpcError>,
 }
 
-impl<T> From<_Response<T>> for Response<T> {
-    fn from(response: _Response<T>) -> Self {
-        assert!(response.result.is_some() ^ response.error.is_some());
+impl<T> TryFrom<_Response<T>> for Response<T> {
+    type Error = Box<dyn Error>;
+
+    fn try_from(response: _Response<T>) -> Result<Self, Self::Error> {
+        if !(response.result.is_some() ^ response.error.is_some()) {
+            return Err("got response without result and error".into());
+        }
 
         if let Some(result) = response.result {
-            Self {
+            Ok(Self {
                 id: response.id,
                 response: Ok(result),
-            }
+            })
         } else {
-            Self {
+            Ok(Self {
                 id: response.id,
                 response: Err(response.error.unwrap()),
-            }
+            })
         }
     }
 }
@@ -120,7 +125,7 @@ where
 }
 
 pub fn get_response_result<T: DeserializeOwned>(buf: &[u8]) -> Result<Response<T>, Box<dyn Error>> {
-    Ok(match serde_json::from_slice::<_Response<T>>(buf) {
+    match serde_json::from_slice::<_Response<T>>(buf) {
         Ok(it) => it,
         Err(err) => {
             eprintln!("got error on buf size: {}", buf.len());
@@ -131,5 +136,5 @@ pub fn get_response_result<T: DeserializeOwned>(buf: &[u8]) -> Result<Response<T
             return Err(Box::new(err));
         }
     }
-    .into())
+    .try_into()
 }
