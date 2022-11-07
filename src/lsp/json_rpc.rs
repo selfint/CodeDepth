@@ -94,7 +94,7 @@ where
         buf.push(byte);
         let text = std::str::from_utf8(&buf)?;
 
-        if let Some(matches) = re.captures(&text) {
+        if let Some(matches) = re.captures(text) {
             let first_match = matches.get(1).ok_or("failed to extract content-length")?;
             break first_match.as_str().parse::<usize>()?;
         }
@@ -120,7 +120,7 @@ where
 }
 
 pub fn get_response_result<T: DeserializeOwned>(buf: &[u8]) -> Result<Response<T>, Box<dyn Error>> {
-    Ok(match serde_json::from_slice::<_Response<T>>(&buf) {
+    Ok(match serde_json::from_slice::<_Response<T>>(buf) {
         Ok(it) => it,
         Err(err) => {
             eprintln!("got error on buf size: {}", buf.len());

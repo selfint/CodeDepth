@@ -14,7 +14,7 @@ use tokio::{
     sync::mpsc,
 };
 
-use crate::lsp_client::json_rpc::_Response;
+use crate::lsp::json_rpc::_Response;
 
 use super::json_rpc::{self, build_notification, build_request, JsonRpcError, Response};
 
@@ -104,14 +104,14 @@ impl LspClient {
         &mut self,
         params: &DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>, JsonRpcError> {
-        self.call::<DocumentSymbolRequest>(&params).await
+        self.call::<DocumentSymbolRequest>(params).await
     }
 
     pub async fn call_hierarchy_incoming_calls(
         &mut self,
         params: &CallHierarchyIncomingCallsParams,
     ) -> Result<Option<Vec<CallHierarchyIncomingCall>>, JsonRpcError> {
-        self.call::<CallHierarchyIncomingCalls>(&params).await
+        self.call::<CallHierarchyIncomingCalls>(params).await
     }
 }
 
