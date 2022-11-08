@@ -33,10 +33,9 @@ async fn test_lsp_client() {
         .await
         .expect("init failed");
 
-    let definitions =
-        code_depth::get_function_definitions(&mut client, &root, Duration::from_secs(5))
-            .await
-            .expect("get_function_definitions failed");
+    let definitions = code_depth::get_workspace_files(&mut client, &root, Duration::from_secs(5))
+        .await
+        .expect("get_function_definitions failed");
 
     let calls = code_depth::get_function_calls(&mut client, &definitions, &root)
         .await

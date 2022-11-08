@@ -48,12 +48,12 @@ async fn main() {
 
     response.expect("failed to init lang server");
 
-    let definitions =
-        code_depth::get_function_definitions(&mut client, &project_url, Duration::from_secs(5))
+    let workspace_files =
+        code_depth::get_workspace_files(&mut client, &project_url, Duration::from_secs(5))
             .await
             .unwrap();
 
-    let calls = code_depth::get_function_calls(&mut client, &definitions, &project_url)
+    let calls = code_depth::get_function_calls(&mut client, &workspace_files, &project_url)
         .await
         .unwrap();
 
