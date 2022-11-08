@@ -271,7 +271,8 @@ pub fn get_function_depths(
     let mut item_paths_from_roots = HashMap::new();
     for (_, items) in depths_by_root {
         for (item, item_path) in items {
-            let item_path_from_root = item_paths_from_roots.entry(item).or_insert(vec![]);
+            let item_path_from_root: &mut Vec<Vec<CallHierarchyItem>> =
+                item_paths_from_roots.entry(item).or_default();
 
             let mut converted_item_path: Vec<CallHierarchyItem> = vec![];
             for hop in item_path {
@@ -300,7 +301,7 @@ pub fn build_short_fn_depths(
     for (item, paths_from_roots) in depths {
         let item_name = format!(
             "{}:{}",
-            item.uri.as_str().trim_start_matches(&root.as_str()),
+            item.uri.as_str().trim_start_matches(root.as_str()),
             item.name.split('(').next().unwrap()
         );
 
@@ -310,7 +311,7 @@ pub fn build_short_fn_depths(
             for hop in path {
                 let hop_name = format!(
                     "{}:{}",
-                    hop.uri.as_str().trim_start_matches(&root.as_str()),
+                    hop.uri.as_str().trim_start_matches(root.as_str()),
                     hop.name.split('(').next().unwrap()
                 );
                 short_path.push(hop_name);
