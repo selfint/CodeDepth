@@ -14,11 +14,11 @@ impl std::fmt::Debug for HashableCallHierarchyItem {
 
 impl Hash for HashableCallHierarchyItem {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.name.hash(state);
+        self.0.range.start.line.hash(state);
+        self.0.range.start.character.hash(state);
+        self.0.range.end.line.hash(state);
+        self.0.range.end.character.hash(state);
         self.0.uri.hash(state);
-        serde_json::to_string(&self.0.selection_range)
-            .expect("failed to serialize call item")
-            .hash(state);
     }
 }
 
