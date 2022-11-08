@@ -44,6 +44,12 @@ impl LspClient {
 
     pub async fn notify<N: Notification>(&mut self, params: &N::Params) {
         let notification = build_notification::<N>(params);
+
+        println!(
+            "notification = {}",
+            std::str::from_utf8(&notification).unwrap()
+        );
+
         self.to_server
             .send(notification)
             .expect("failed to send request to server");
@@ -56,6 +62,8 @@ impl LspClient {
         let request = build_request::<R>(self.request_count, params);
         self.request_count += 1;
 
+        println!("request = {}", std::str::from_utf8(&request).unwrap());
+
         self.to_server
             .send(request)
             .expect("failed to send request to server");
@@ -66,9 +74,11 @@ impl LspClient {
                 match response {
                     Ok(out) => match serde_json::from_value::<_Response<R::Result>>(out) {
                         Ok(result) => {
-                            let response: Response<R::Result> = result.into();
+                            let response: Result<Response<_>, _> = result.try_into();
 
-                            return response.response;
+                            if let Ok(response) = response {
+                                return response.response;
+                            }
                         }
                         Err(err) => {
                             eprintln!("got unexpected response type, or failed to deserialize response, err:\n{}", err);

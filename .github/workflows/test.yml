@@ -20,7 +20,19 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2.0.1
 
-      - uses: actions-rs/toolchain@v1
+      - name: Setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Setup java
+        uses: actions/setup-java@v3
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup rust
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           components: rust-src
@@ -30,6 +42,13 @@ jobs:
           curl -L https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-unknown-linux-gnu.gz | gunzip -c - > /usr/local/bin/rust-analyzer
           chmod +x /usr/local/bin/rust-analyzer
 
+      - name: Install jdtls
+        run: |
+          mkdir /tmp/jdtls
+          curl https://download.eclipse.org/jdtls/milestones/1.9.0/jdt-language-server-1.9.0-202203031534.tar.gz | tar --directory=/tmp/jdtls -xzvf -
+          ln -s $(realpath /tmp/jdtls/bin/jdtls) /usr/local/bin/jdtls
+          chmod +x /usr/local/bin/jdtls
+
       - uses: actions-rs/cargo@v1
         with:
           command: build
@@ -37,4 +56,4 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose
+          args: --verbose -- --nocapture

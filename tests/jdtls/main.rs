@@ -5,15 +5,19 @@ use tokio::process::Command;
 
 use code_depth::{self, lsp::LspClient};
 
-const SAMPLE_PROJECT_PATH: &str = "tests/rust_analyzer/sample_rust_project";
+const SAMPLE_PROJECT_PATH: &str = "tests/jdtls/sample_java_project";
 
 fn start_std_io_lsp_client() -> LspClient {
-    let server = Command::new("rust-analyzer")
+    let server = Command::new("jdtls")
+        .arg("-data")
+        .arg(std::env::temp_dir().to_str().unwrap())
+        .arg("-configuration")
+        .arg(std::env::temp_dir().to_str().unwrap())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("failed to start rust-analyzer");
+        .expect("failed to start jdtls");
 
     LspClient::stdio_client(server)
 }
@@ -33,11 +37,12 @@ async fn test_lsp_client() {
         .await
         .expect("init failed");
 
-    let definitions = code_depth::get_workspace_files(&mut client, &root, Duration::from_secs(5))
-        .await
-        .expect("get_function_definitions failed");
+    let workspace_files =
+        code_depth::get_workspace_files(&mut client, &root, Duration::from_secs(5))
+            .await
+            .expect("get_function_definitions failed");
 
-    let calls = code_depth::get_function_calls(&mut client, &definitions, &root)
+    let calls = code_depth::get_function_calls(&mut client, &workspace_files, &root)
         .await
         .expect("get_function_calls failed");
 
@@ -51,13 +56,13 @@ async fn test_lsp_client() {
                     .unwrap()
                     .to_str()
                     .unwrap(),
-                s.name,
+                s.name.split('(').next().unwrap(),
                 Path::new(t.uri.path())
                     .file_name()
                     .unwrap()
                     .to_str()
                     .unwrap(),
-                t.name
+                t.name.split('(').next().unwrap()
             )
         })
         .collect();
@@ -67,11 +72,10 @@ async fn test_lsp_client() {
     assert_eq!(
         short_calls,
         vec![
-            "main.rs:foo->main.rs:in_foo",
-            "main.rs:impl_method->other_file.rs:other_file_method",
-            "main.rs:in_foo->main.rs:impl_method",
-            "main.rs:main->main.rs:foo",
-            "main.rs:main->main.rs:impl_method",
+            "App.java:foo->App.java:method",
+            "App.java:main->App.java:foo",
+            "App.java:main->App.java:method",
+            "App.java:method->OtherFile.java:otherFileMethod",
         ],
         "didn't find all function calls"
     );
@@ -80,35 +84,32 @@ async fn test_lsp_client() {
 
     let short_item_depths = code_depth::build_short_fn_depths(&root, &depths);
 
+    dbg!(&short_item_depths);
+
     assert!(short_item_depths.contains(&(
-        "/src/other_file.rs:other_file_method".into(),
+        "/src/main/java/sample/OtherFile.java:otherFileMethod".into(),
         vec![vec![
-            "/src/main.rs:main".into(),
-            "/src/main.rs:impl_method".into(),
-            "/src/other_file.rs:other_file_method".into(),
+            "/src/main/java/sample/App.java:main".into(),
+            "/src/main/java/sample/App.java:method".into(),
+            "/src/main/java/sample/OtherFile.java:otherFileMethod".into(),
         ],],
     )));
     assert!(short_item_depths.contains(&(
-        "/src/main.rs:in_foo".into(),
+        "/src/main/java/sample/App.java:method".into(),
         vec![vec![
-            "/src/main.rs:main".into(),
-            "/src/main.rs:foo".into(),
-            "/src/main.rs:in_foo".into(),
+            "/src/main/java/sample/App.java:main".into(),
+            "/src/main/java/sample/App.java:method".into(),
         ],],
     )));
     assert!(short_item_depths.contains(&(
-        "/src/main.rs:impl_method".into(),
+        "/src/main/java/sample/App.java:foo".into(),
         vec![vec![
-            "/src/main.rs:main".into(),
-            "/src/main.rs:impl_method".into(),
+            "/src/main/java/sample/App.java:main".into(),
+            "/src/main/java/sample/App.java:foo".into(),
         ],],
     )));
     assert!(short_item_depths.contains(&(
-        "/src/main.rs:foo".into(),
-        vec![vec!["/src/main.rs:main".into(), "/src/main.rs:foo".into(),],],
-    )));
-    assert!(short_item_depths.contains(&(
-        "/src/main.rs:main".into(),
-        vec![vec!["/src/main.rs:main".into(),],],
+        "/src/main/java/sample/App.java:main".into(),
+        vec![vec!["/src/main/java/sample/App.java:main".into(),],],
     )));
 }

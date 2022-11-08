@@ -2,21 +2,21 @@ mod graph_util;
 mod hashable_call_hierarchy_item;
 pub mod lsp;
 
-use std::collections::HashMap;
-use std::{collections::HashSet, error::Error, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    time::Duration,
+};
+
+use lsp_types::{
+    CallHierarchyItem, InitializeResult, SymbolInformation, SymbolKind, Url, WorkspaceSymbolParams,
+};
 
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
-use lsp::json_rpc::JsonRpcError;
+use lsp::{json_rpc::JsonRpcError, LspClient};
 
-use lsp_types::{
-    CallHierarchyItem, InitializeResult, SymbolInformation, Url, WorkspaceSymbolParams,
-};
-
-pub async fn init(
-    client: &mut lsp::LspClient,
-    root_uri: Url,
-) -> Result<InitializeResult, JsonRpcError> {
+pub async fn init(client: &mut LspClient, root_uri: Url) -> Result<InitializeResult, JsonRpcError> {
     let params = lsp_types::InitializeParams {
         root_uri: Some(root_uri),
         capabilities: lsp_types::ClientCapabilities {
@@ -32,14 +32,68 @@ pub async fn init(
         ..Default::default()
     };
 
-    client.initialize(&params).await
+    let result = client.initialize(&params).await;
+
+    // make sure server has the desired capabilities
+    if let Ok(result) = &result {
+        let mut required_methods = HashSet::new();
+
+        for required_method in [
+            "workspace/symbol",
+            "textDocument/documentSymbol",
+            "callHierarchy/incomingCalls",
+        ] {
+            required_methods.insert(required_method);
+        }
+
+        let mut supported_methods = HashSet::new();
+
+        if match &result.capabilities.workspace_symbol_provider {
+            Some(provider) => match provider {
+                lsp_types::OneOf::Left(enabled) => *enabled,
+                lsp_types::OneOf::Right(_) => true,
+            },
+            None => false,
+        } {
+            supported_methods.insert("workspace/symbol");
+        }
+
+        if match &result.capabilities.document_symbol_provider {
+            Some(provider) => match provider {
+                lsp_types::OneOf::Left(enabled) => *enabled,
+                lsp_types::OneOf::Right(_) => true,
+            },
+            None => false,
+        } {
+            supported_methods.insert("textDocument/documentSymbol");
+        }
+
+        if match &result.capabilities.call_hierarchy_provider {
+            Some(provider) => match provider {
+                lsp_types::CallHierarchyServerCapability::Simple(enabled) => *enabled,
+                lsp_types::CallHierarchyServerCapability::Options(_) => true,
+            },
+            None => false,
+        } {
+            supported_methods.insert("callHierarchy/incomingCalls");
+        }
+
+        assert_eq!(
+            required_methods,
+            supported_methods,
+            "missing support for required methods {:?}",
+            required_methods.difference(&supported_methods)
+        );
+    }
+
+    result
 }
 
-pub async fn get_function_definitions(
+pub async fn get_workspace_files(
     client: &mut lsp::LspClient,
     project_root: &Url,
     max_duration: Duration,
-) -> Result<Vec<SymbolInformation>, Box<dyn Error>> {
+) -> Result<HashSet<Url>, Box<dyn Error>> {
     let retry_sleep_duration = 100;
     let retry_amount = max_duration.as_millis() / retry_sleep_duration;
     let mut retries_left = retry_amount;
@@ -51,6 +105,8 @@ pub async fn get_function_definitions(
         query: "#".into(),
         ..Default::default()
     };
+
+    let mut symbols: Vec<SymbolInformation> = vec![];
 
     let mut result = client.workspace_symbol(&params).await;
 
@@ -69,34 +125,47 @@ pub async fn get_function_definitions(
         result = client.workspace_symbol(&params).await;
     }
 
-    let symbols = result.unwrap().expect("got no symbols in workspace");
+    // check if empty query works
+    if let Ok(Some(result)) = &mut result {
+        symbols.append(result);
+    }
 
-    let function_definitions = symbols
-        .iter()
-        .filter(|&s| s.kind == lsp_types::SymbolKind::FUNCTION)
-        .filter(|&s| s.location.uri.as_str().starts_with(project_root.as_str()))
-        .map(|s| s.to_owned())
-        .collect::<Vec<SymbolInformation>>();
+    // try letter by letter strategy
+    for letter in " abcdefghijklmnopqrstuvwxyz".chars() {
+        let params = WorkspaceSymbolParams {
+            query: letter.into(),
+            ..Default::default()
+        };
 
-    Ok(function_definitions)
+        let mut result = client.workspace_symbol(&params).await;
+
+        if let Ok(Some(result)) = &mut result {
+            symbols.append(result);
+        }
+    }
+
+    let mut workspace_files = HashSet::new();
+
+    let project_root_str = project_root.as_str();
+    for symbol in symbols {
+        let symbol_file = symbol.location.uri;
+        if symbol_file.as_str().starts_with(project_root_str) {
+            workspace_files.insert(symbol_file);
+        }
+    }
+
+    Ok(workspace_files)
 }
 
 pub async fn get_function_calls(
-    client: &mut lsp::LspClient,
-    definitions: &Vec<SymbolInformation>,
+    client: &mut LspClient,
+    workspace_files: &HashSet<Url>,
     project_root: &Url,
 ) -> Result<Vec<(CallHierarchyItem, CallHierarchyItem)>, Box<dyn Error>> {
     // get exact location of each definition's name
-    let mut definition_files = HashSet::new();
-
-    // build CallHierarchyItems from definition symbols
-    for definition in definitions {
-        definition_files.insert(definition.location.uri.clone());
-    }
-
     let mut exact_definitions = vec![];
 
-    for file in definition_files.iter() {
+    for file in workspace_files.iter() {
         // get file symbols
         let params = lsp_types::DocumentSymbolParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file.clone() },
@@ -177,7 +246,7 @@ fn update_exact_definitions(
     exact_definitions: &mut Vec<(Url, lsp_types::DocumentSymbol)>,
 ) {
     for symbol in symbols {
-        if symbol.kind == lsp_types::SymbolKind::FUNCTION {
+        if symbol.kind == SymbolKind::FUNCTION || symbol.kind == SymbolKind::METHOD {
             exact_definitions.push((file.to_owned(), symbol.clone()));
         }
 
@@ -232,7 +301,7 @@ pub fn build_short_fn_depths(
         let item_name = format!(
             "{}:{}",
             item.uri.as_str().trim_start_matches(&root.as_str()),
-            item.name
+            item.name.split('(').next().unwrap()
         );
 
         let mut short_paths = vec![];
@@ -242,7 +311,7 @@ pub fn build_short_fn_depths(
                 let hop_name = format!(
                     "{}:{}",
                     hop.uri.as_str().trim_start_matches(&root.as_str()),
-                    hop.name
+                    hop.name.split('(').next().unwrap()
                 );
                 short_path.push(hop_name);
             }
