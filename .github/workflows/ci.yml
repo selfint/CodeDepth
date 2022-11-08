@@ -65,16 +65,25 @@ jobs:
           args: --verbose -- --nocapture
 
   build:
-    name: Build binaries
+    name: Build release binaries
     if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         os:
           - macos-latest
           - ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
+      - uses: actions/checkout@v3
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.0.1
+      - name: Setup rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
       - name: Build release binary
         uses: actions-rs/cargo@v1
         with:
