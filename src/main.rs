@@ -57,9 +57,22 @@ async fn main() {
         .await
         .unwrap();
 
-    let depths = code_depth::get_function_depths(calls);
+    let non_test_calls = calls
+        .into_iter()
+        .filter(|(to, from)| {
+            !(test_re.is_match(&format!(
+                "{}:{}",
+                to.uri.as_str().trim_start_matches(project_url.as_str()),
+                to.name
+            )) || test_re.is_match(&format!(
+                "{}:{}",
+                from.uri.as_str().trim_start_matches(project_url.as_str()),
+                from.name
+            )))
+        })
+        .collect::<Vec<_>>();
 
-    let mut results_json = json!({});
+    let depths = code_depth::get_function_depths(non_test_calls);
 
     // find all items with different depths
     let items_with_different_depths = depths
