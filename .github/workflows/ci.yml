@@ -1,4 +1,4 @@
-name: Rust
+name: CI/CD
 
 on:
   push:
@@ -91,14 +91,11 @@ jobs:
           command: build
           args: --release --bin code_depth
 
-      - name: Compress release binary
-        run: xz -9k target/release/code_depth
-
       - name: Upload release binary
         uses: actions/upload-artifact@v3
         with:
           name: ${{ github.ref }}-${{ matrix.os }}-binary
-          path: target/release/code_depth.xz
+          path: target/release/code_depth
 
   release:
     name: Release
@@ -120,5 +117,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            linux/code_depth.xz
-            mac/code_depth.xz
+            linux/code_depth
+            mac/code_depth
