@@ -1,6 +1,6 @@
 use std::{collections::HashSet, env, path::Path, process::Stdio, time::Duration};
 
-use code_depth::lsp::LspClient;
+use code_depth::{hashable_call_hierarchy_item::HashableCallHierarchyItem, lsp::LspClient};
 use lsp_types::Url;
 use regex::Regex;
 use serde_json::json;
@@ -62,8 +62,28 @@ async fn main() {
     let mut results_json = json!({});
 
     // find all items with different depths
+    let items_with_different_depths = depths
+        .into_iter()
+        .filter(|(item, item_paths_from_roots)| {
+            let total_unique_depths = item_paths_from_roots
+                .iter()
+                .map(|path| path.len())
+                .collect::<HashSet<_>>()
+                .len();
+
+            let mut all_hops: HashSet<HashableCallHierarchyItem> = HashSet::new();
+            let paths_are_unique = item_paths_from_roots.iter().all(|path| {
+                path.iter()
+                    .filter(|&hop| hop != item)
+                    .all(|hop| all_hops.insert(hop.clone().into()))
+            });
+
+            total_unique_depths >= 1 && paths_are_unique
+        })
+        .collect::<Vec<_>>();
+
     for (item_name, item_depths_from_roots) in
-        code_depth::build_short_fn_depths(&project_url, &depths)
+        code_depth::build_short_fn_depths(&project_url, &items_with_different_depths)
     {
         // ignore test items
         if test_re.captures(&item_name).is_some() {

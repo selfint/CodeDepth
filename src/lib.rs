@@ -1,5 +1,5 @@
 mod graph_util;
-mod hashable_call_hierarchy_item;
+pub mod hashable_call_hierarchy_item;
 pub mod lsp;
 
 use std::{
