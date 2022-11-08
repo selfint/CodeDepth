@@ -130,8 +130,20 @@ pub async fn get_workspace_files(
         symbols.append(result);
     }
 
+    // try empty query strategy
+    let params = WorkspaceSymbolParams {
+        query: "".into(),
+        ..Default::default()
+    };
+
+    let mut result = client.workspace_symbol(&params).await;
+
+    if let Ok(Some(result)) = &mut result {
+        symbols.append(result);
+    }
+
     // try letter by letter strategy
-    for letter in " abcdefghijklmnopqrstuvwxyz".chars() {
+    for letter in "abcdefghijklmnopqrstuvwxyz".chars() {
         let params = WorkspaceSymbolParams {
             query: letter.into(),
             ..Default::default()
@@ -231,7 +243,7 @@ pub async fn get_function_calls(
                         &target_item.selection_range.start
                     ),
                     e.code,
-                    e.message.chars().take(100).collect::<String>()
+                    e.message
                 ));
             }
         }
