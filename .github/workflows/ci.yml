@@ -74,6 +74,7 @@ jobs:
         os:
           - macos-latest
           - ubuntu-latest
+          - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -88,7 +89,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --bin --release code_depth
+          args: --release --bin code_depth
 
       - name: Compress release binary
         run: xz -9k target/release/code_depth
