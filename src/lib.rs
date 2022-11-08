@@ -2,21 +2,21 @@ mod graph_util;
 mod hashable_call_hierarchy_item;
 pub mod lsp;
 
-use std::collections::HashMap;
-use std::{collections::HashSet, error::Error, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    time::Duration,
+};
+
+use lsp_types::{
+    CallHierarchyItem, InitializeResult, SymbolInformation, SymbolKind, Url, WorkspaceSymbolParams,
+};
 
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
-use lsp::json_rpc::JsonRpcError;
+use lsp::{json_rpc::JsonRpcError, LspClient};
 
-use lsp_types::{
-    CallHierarchyItem, InitializeResult, SymbolInformation, Url, WorkspaceSymbolParams,
-};
-
-pub async fn init(
-    client: &mut lsp::LspClient,
-    root_uri: Url,
-) -> Result<InitializeResult, JsonRpcError> {
+pub async fn init(client: &mut LspClient, root_uri: Url) -> Result<InitializeResult, JsonRpcError> {
     let params = lsp_types::InitializeParams {
         root_uri: Some(root_uri),
         capabilities: lsp_types::ClientCapabilities {
@@ -32,7 +32,61 @@ pub async fn init(
         ..Default::default()
     };
 
-    client.initialize(&params).await
+    let result = client.initialize(&params).await;
+
+    // make sure server has the desired capabilities
+    if let Ok(result) = &result {
+        let mut required_methods = HashSet::new();
+
+        for required_method in [
+            "workspace/symbol",
+            "textDocument/documentSymbol",
+            "callHierarchy/incomingCalls",
+        ] {
+            required_methods.insert(required_method);
+        }
+
+        let mut supported_methods = HashSet::new();
+
+        if match &result.capabilities.workspace_symbol_provider {
+            Some(provider) => match provider {
+                lsp_types::OneOf::Left(enabled) => *enabled,
+                lsp_types::OneOf::Right(_) => true,
+            },
+            None => false,
+        } {
+            supported_methods.insert("workspace/symbol");
+        }
+
+        if match &result.capabilities.document_symbol_provider {
+            Some(provider) => match provider {
+                lsp_types::OneOf::Left(enabled) => *enabled,
+                lsp_types::OneOf::Right(_) => true,
+            },
+            None => false,
+        } {
+            supported_methods.insert("textDocument/documentSymbol");
+        }
+
+        if match &result.capabilities.call_hierarchy_provider {
+            Some(provider) => match provider {
+                lsp_types::CallHierarchyServerCapability::Simple(enabled) => *enabled,
+                lsp_types::CallHierarchyServerCapability::Options(_) => true,
+            },
+            None => false,
+        } {
+            supported_methods.insert("callHierarchy/incomingCalls");
+        }
+
+        assert_eq!(
+            required_methods,
+            supported_methods,
+            "missing support for required methods {:?}",
+            required_methods.difference(&supported_methods)
+        );
+    }
+
+    result
 }
 
 pub async fn get_function_definitions(
