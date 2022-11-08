@@ -32,7 +32,7 @@ jobs:
 
       - name: Install jdtls
         run: |
-          curl https://download.eclipse.org/jdtls/milestones/1.9.0/jdt-language-server-1.9.0-202203031534.tar.gz | tar --directory=/opt/jdtls -xvf -
+          curl https://download.eclipse.org/jdtls/milestones/1.9.0/jdt-language-server-1.9.0-202203031534.tar.gz | bsdtar --directory=/opt/jdtls -xvf -
           ln -s $(realpath /opt/jdtls/bin/jdtls) /usr/local/bin/jdtls
           chmod +x /usr/local/bin/jdtls
 
