@@ -20,7 +20,7 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - os: linux-latest
+          - os: ubuntu-latest
             rust-analyzer-target: rust-analyzer-x86_64-unknown-linux-gnu.gz
           - os: macos-latest
             rust-analyzer-target: rust-analyzer-x86_64-apple-darwin.gz
