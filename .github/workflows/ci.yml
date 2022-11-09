@@ -120,11 +120,14 @@ jobs:
         with:
           name: ${{ github.ref_name }}-windows-latest-binary
           path: windows
-      - run: ls linux mac windows
+      - name: Rename artifacts
+        run: |
+          mkdir artifacts
+          mv linux/code_depth artifacts/code_depth_linux
+          mv mac/code_depth artifacts/code_depth_mac
+          mv windows/code_depth artifacts/code_depth_windows
+
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            linux/*
-            mac/*
-            windows/*
+          files: artifacts/*
