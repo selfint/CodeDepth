@@ -95,7 +95,9 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ github.ref_name }}-${{ matrix.os }}-binary
-          path: target/release/code_depth
+          path: |
+            target/release/code_depth
+            target/release/code_depth.exe
 
   release:
     name: Release
@@ -113,9 +115,16 @@ jobs:
         with:
           name: ${{ github.ref_name }}-macos-latest-binary
           path: mac
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ github.ref_name }}-windows-latest-binary
+          path: mac
+      - run: ls linux mac windows
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            linux/code_depth
-            mac/code_depth
+            linux/*
+            mac/*
+            windows/*
