@@ -125,7 +125,7 @@ jobs:
           mkdir artifacts
           mv linux/code_depth artifacts/code_depth_linux
           mv mac/code_depth artifacts/code_depth_mac
-          mv windows/code_depth artifacts/code_depth_windows
+          mv windows/code_depth.exe artifacts/code_depth_windows.exe
 
       - name: Release
         uses: softprops/action-gh-release@v1
