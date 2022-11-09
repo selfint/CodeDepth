@@ -15,49 +15,47 @@ env:
 
 jobs:
   test:
-    name: Test
-    runs-on: ubuntu-latest
-
+    name: Test *nix
+    strategy:
+      fail-fast: true
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2.0.1
-
       - name: Setup python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
-
       - name: Setup java
         uses: actions/setup-java@v3
         with:
           distribution: "temurin"
           java-version: "17"
-
       - name: Setup rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           components: rust-src
-
       - name: Install rust-analyzer
         run: |
           curl -L https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-unknown-linux-gnu.gz | gunzip -c - > /usr/local/bin/rust-analyzer
           chmod +x /usr/local/bin/rust-analyzer
-
       - name: Install jdtls
         run: |
           jdtls_dir=$(mktemp -d --suffix "jdtls")
           curl https://download.eclipse.org/jdtls/milestones/1.9.0/jdt-language-server-1.9.0-202203031534.tar.gz | tar --directory=$jdtls_dir -xzvf -
           ln -s $jdtls_dir/bin/jdtls /usr/local/bin/jdtls
           chmod +x /usr/local/bin/jdtls
-
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --verbose
-
       - name: Test
         uses: actions-rs/cargo@v1
         with:
@@ -71,10 +69,13 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-          - windows-latest
+        include:
+          - os: linux-latest
+            artifact: target/release/code_depth
+          - os: macos-latest
+            artifact: target/release/code_depth
+          - os: windows-latest
+            artifact: target/release/code_depth.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -84,20 +85,16 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-
       - name: Build release binary
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --release --bin code_depth
-
       - name: Upload release binary
         uses: actions/upload-artifact@v3
         with:
           name: ${{ github.ref_name }}-${{ matrix.os }}-binary
-          path: |
-            target/release/code_depth
-            target/release/code_depth.exe
+          path: ${{ matrix.artifact }}
 
   release:
     name: Release
@@ -126,7 +123,6 @@ jobs:
           mv linux/code_depth artifacts/code_depth_linux
           mv mac/code_depth artifacts/code_depth_mac
           mv windows/code_depth.exe artifacts/code_depth_windows.exe
-
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
