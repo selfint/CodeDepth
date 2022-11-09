@@ -19,9 +19,12 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
+        include:
+          - os: linux-latest
+            rust-analyzer-target: rust-analyzer-x86_64-unknown-linux-gnu.gz
+          - os: macos-latest
+            rust-analyzer-target: rust-analyzer-x86_64-apple-darwin.gz
+
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -43,7 +46,7 @@ jobs:
           components: rust-src
       - name: Install rust-analyzer
         run: |
-          curl -L https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-unknown-linux-gnu.gz | gunzip -c - > /usr/local/bin/rust-analyzer
+          curl -L https://github.com/rust-lang/rust-analyzer/releases/latest/download/${{ matrix.rust-analyzer-target}} | gunzip -c - > /usr/local/bin/rust-analyzer
           chmod +x /usr/local/bin/rust-analyzer
       - name: Install jdtls
         run: |
