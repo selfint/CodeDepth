@@ -47,7 +47,7 @@ jobs:
           chmod +x /usr/local/bin/rust-analyzer
       - name: Install jdtls
         run: |
-          jdtls_dir=$(mktemp -d --suffix "jdtls")
+          jdtls_dir=$(mktemp -d)
           curl https://download.eclipse.org/jdtls/milestones/1.9.0/jdt-language-server-1.9.0-202203031534.tar.gz | tar --directory=$jdtls_dir -xzvf -
           ln -s $jdtls_dir/bin/jdtls /usr/local/bin/jdtls
           chmod +x /usr/local/bin/jdtls
