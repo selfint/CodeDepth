@@ -83,17 +83,14 @@ async fn main() {
 
     let mut results_json = json!({});
 
-    for (item_name, item_depths_from_roots) in
-        code_depth::build_short_fn_depths(&project_url, &items_with_different_depths)
-    {
-        let mut depths = HashSet::new();
+    code_depth::build_short_fn_depths(&project_url, &items_with_different_depths)
+        .iter()
+        .for_each(|(item_name, item_depths_from_roots)| {
+            results_json[item_name] = serde_json::to_value(item_depths_from_roots).unwrap();
+        });
 
-        let mut non_test_paths = vec![];
-
-        for path in &item_depths_from_roots {
-            non_test_paths.push(path);
-            depths.insert(path.len());
-        }
+    println!("{}", serde_json::to_string_pretty(&results_json).unwrap());
+}
 
 fn filter_calls<F: Fn(&CallHierarchyItem) -> String>(
     calls: Vec<(CallHierarchyItem, CallHierarchyItem)>,
