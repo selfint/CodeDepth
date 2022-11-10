@@ -34,6 +34,9 @@ async fn start_lang_server(exe: &str) -> LspClient {
 fn parse_args() -> (PathBuf, String, Regex) {
     let mut args = env::args();
 
+    // skip binary name
+    args.next();
+
     let project_path = Path::new(&args.next().expect("missing argument <project_path>"))
         .canonicalize()
         .expect("given <project_path> couldn't be canonicalized");
@@ -51,6 +54,8 @@ fn parse_args() -> (PathBuf, String, Regex) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    simple_logger::SimpleLogger::new().env().init().unwrap();
+
     let (project_path, lang_server_exe, test_re) = parse_args();
 
     let mut client = start_lang_server(&lang_server_exe).await;
