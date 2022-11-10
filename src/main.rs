@@ -65,20 +65,13 @@ async fn main() {
         .await
         .unwrap();
 
-    let non_test_calls = calls
-        .into_iter()
-        .filter(|(to, from)| {
-            !(test_re.is_match(&format!(
-                "{}:{}",
-                to.uri.as_str().trim_start_matches(project_url.as_str()),
-                to.name
-            )) || test_re.is_match(&format!(
-                "{}:{}",
-                from.uri.as_str().trim_start_matches(project_url.as_str()),
-                from.name
-            )))
-        })
-        .collect::<Vec<_>>();
+    let non_test_calls = filter_calls(calls, &test_re, |call: &CallHierarchyItem| {
+        format!(
+            "{}:{}",
+            call.uri.as_str().trim_start_matches(project_url.as_str()),
+            call.name
+        )
+    });
 
     let depths = code_depth::get_function_depths(non_test_calls);
 
@@ -102,8 +95,15 @@ async fn main() {
             depths.insert(path.len());
         }
 
-        results_json[item_name] = serde_json::to_value(non_test_paths).unwrap();
-    }
-
-    println!("{}", serde_json::to_string_pretty(&results_json).unwrap());
+fn filter_calls<F: Fn(&CallHierarchyItem) -> String>(
+    calls: Vec<(CallHierarchyItem, CallHierarchyItem)>,
+    test_re: &Regex,
+    item_to_str: F,
+) -> Vec<(CallHierarchyItem, CallHierarchyItem)> {
+    calls
+        .into_iter()
+        .filter(|(to, from)| {
+            !(test_re.is_match(&item_to_str(to)) || test_re.is_match(&item_to_str(from)))
+        })
+        .collect::<Vec<_>>()
 }
