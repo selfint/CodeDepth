@@ -84,8 +84,6 @@ async fn test_lsp_client() {
 
     let short_item_depths = code_depth::build_short_fn_depths(&root, &depths);
 
-    dbg!(&short_item_depths);
-
     assert!(short_item_depths.contains(&(
         "/src/main/java/sample/OtherFile.java:otherFileMethod".into(),
         vec![vec![

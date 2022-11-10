@@ -5,23 +5,26 @@ pub mod lsp;
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
+    hash::Hash,
     time::Duration,
 };
 
+use log::debug;
 use lsp_types::{
-    CallHierarchyItem, InitializeResult, SymbolInformation, SymbolKind, Url, WorkspaceSymbolParams,
+    CallHierarchyItem, ClientCapabilities, DocumentSymbolClientCapabilities, InitializeParams,
+    InitializeResult, SymbolKind, TextDocumentClientCapabilities, Url,
 };
 
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
-use lsp::{json_rpc::JsonRpcError, LspClient};
+use lsp::{json_rpc::LspError, LspClient};
 
-pub async fn init(client: &mut LspClient, root_uri: Url) -> Result<InitializeResult, JsonRpcError> {
-    let params = lsp_types::InitializeParams {
+pub async fn init(client: &mut LspClient, root_uri: Url) -> Result<InitializeResult, LspError> {
+    let params = InitializeParams {
         root_uri: Some(root_uri),
-        capabilities: lsp_types::ClientCapabilities {
-            text_document: Some(lsp_types::TextDocumentClientCapabilities {
-                document_symbol: Some(lsp_types::DocumentSymbolClientCapabilities {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                document_symbol: Some(DocumentSymbolClientCapabilities {
                     hierarchical_document_symbol_support: Some(true),
                     ..Default::default()
                 }),
@@ -98,17 +101,10 @@ pub async fn get_workspace_files(
     let retry_amount = max_duration.as_millis() / retry_sleep_duration;
     let mut retries_left = retry_amount;
 
-    let params = WorkspaceSymbolParams {
-        // for rust-analyzer we need to append '#' to get function definitions
-        // this might not be good for all LSP servers
-        // TODO: add option to set query string by lsp server, and maybe this is the default?
-        query: "#".into(),
-        ..Default::default()
-    };
-
-    let mut symbols: Vec<SymbolInformation> = vec![];
-
-    let mut result = client.workspace_symbol(&params).await;
+    // for rust-analyzer we need to append '#' to get function definitions
+    // this might not be good for all LSP servers
+    // TODO: add option to set query string by lsp server, and maybe this is the default?
+    let mut result = client.workspace_symbol("#").await;
 
     // wait for server to index project
     // TODO: add 'lsp-server-ready' check instead of this hack
@@ -122,21 +118,16 @@ pub async fn get_workspace_files(
 
         std::thread::sleep(Duration::from_millis(retry_sleep_duration as u64));
 
-        result = client.workspace_symbol(&params).await;
+        result = client.workspace_symbol("#").await;
     }
 
-    // check if empty query works
+    let mut symbols = vec![];
     if let Ok(Some(result)) = &mut result {
         symbols.append(result);
     }
 
     // try empty query strategy
-    let params = WorkspaceSymbolParams {
-        query: "".into(),
-        ..Default::default()
-    };
-
-    let mut result = client.workspace_symbol(&params).await;
+    let mut result = client.workspace_symbol("").await;
 
     if let Ok(Some(result)) = &mut result {
         symbols.append(result);
@@ -144,12 +135,7 @@ pub async fn get_workspace_files(
 
     // try letter by letter strategy
     for letter in "abcdefghijklmnopqrstuvwxyz".chars() {
-        let params = WorkspaceSymbolParams {
-            query: letter.into(),
-            ..Default::default()
-        };
-
-        let mut result = client.workspace_symbol(&params).await;
+        let mut result = client.workspace_symbol(&letter.to_string()).await;
 
         if let Ok(Some(result)) = &mut result {
             symbols.append(result);
@@ -179,13 +165,7 @@ pub async fn get_function_calls(
 
     for file in workspace_files.iter() {
         // get file symbols
-        let params = lsp_types::DocumentSymbolParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file.clone() },
-            partial_result_params: lsp_types::PartialResultParams::default(),
-            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
-        };
-
-        let result = client.document_symbol(&params).await.unwrap().unwrap();
+        let result = client.document_symbol(file.clone()).await.unwrap().unwrap();
 
         match result {
             // we need DocumentSymbol for the precise location of the function name
@@ -204,47 +184,45 @@ pub async fn get_function_calls(
             kind: definition.kind,
             tags: definition.tags,
             detail: definition.detail,
-            uri: file.clone(),
+            uri: file,
             range: definition.range,
             selection_range: definition.selection_range,
             data: None,
         };
 
-        let params = lsp_types::CallHierarchyIncomingCallsParams {
-            item: target_item.clone(),
-            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
-            partial_result_params: lsp_types::PartialResultParams::default(),
-        };
-
-        let result = client.call_hierarchy_incoming_calls(&params).await;
+        let result = client
+            .call_hierarchy_incoming_calls(target_item.clone())
+            .await;
 
         match result {
-            Ok(result) => {
-                if let Some(response) = result {
-                    for source_item in response {
-                        // filter out calls from outside our project
-                        if source_item
-                            .from
-                            .uri
-                            .as_str()
-                            .starts_with(project_root.as_str())
-                        {
-                            calls.push((source_item.from, target_item.clone()));
-                        }
+            Ok(Some(response)) => {
+                for source_item in response {
+                    // filter out calls from outside our project
+                    if source_item
+                        .from
+                        .uri
+                        .as_str()
+                        .starts_with(project_root.as_str())
+                    {
+                        calls.push((source_item.from, target_item.clone()));
                     }
                 }
             }
+            Ok(None) => {}
             Err(e) => {
-                dbg!(format!(
+                debug!(
                     "got jsonRpcError for {:?}: {:?} {:?}",
                     (
-                        file.as_str(),
+                        &target_item
+                            .uri
+                            .as_str()
+                            .trim_start_matches(project_root.as_str()),
                         &target_item.name,
                         &target_item.selection_range.start
                     ),
                     e.code,
                     e.message
-                ));
+                );
             }
         }
     }
@@ -295,13 +273,10 @@ pub fn get_function_depths(
         }
     }
 
-    // TODO: what is the functional way to implement this (without clone)?
-    let mut r = vec![];
-    for (k, v) in item_paths_from_roots {
-        r.push((k.into(), v));
-    }
-
-    r
+    item_paths_from_roots
+        .into_iter()
+        .map(|(k, v)| (k.into(), v))
+        .collect()
 }
 
 pub fn build_short_fn_depths(
@@ -336,4 +311,32 @@ pub fn build_short_fn_depths(
     }
 
     short_item_depths
+}
+
+pub type Depths<T> = Vec<(T, Vec<Vec<T>>)>;
+pub fn find_items_with_different_depths<T, H>(depths: Depths<T>) -> Depths<T>
+where
+    T: PartialEq + Into<H> + Clone,
+    H: Hash + Eq + From<T>,
+{
+    depths
+        .into_iter()
+        .filter(|(item, item_paths_from_roots)| {
+            let total_unique_depths = item_paths_from_roots
+                .iter()
+                .map(|path| path.len())
+                .collect::<HashSet<_>>()
+                .len();
+
+            let mut all_hops: HashSet<H> = HashSet::new();
+            let paths_are_unique = item_paths_from_roots.iter().all(|path| {
+                path.iter().filter(|&hop| hop != item).all(|hop| {
+                    let h_hop: H = hop.clone().into();
+                    all_hops.insert(h_hop)
+                })
+            });
+
+            total_unique_depths > 1 && paths_are_unique
+        })
+        .collect()
 }
