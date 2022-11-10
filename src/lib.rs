@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use log::debug;
 use lsp_types::{
     CallHierarchyItem, ClientCapabilities, DocumentSymbolClientCapabilities, InitializeParams,
     InitializeResult, SymbolKind, TextDocumentClientCapabilities, Url,
@@ -16,9 +17,9 @@ use lsp_types::{
 
 use graph_util::get_depths;
 use hashable_call_hierarchy_item::HashableCallHierarchyItem;
-use lsp::{json_rpc::JsonRpcError, LspClient};
+use lsp::{json_rpc::LspError, LspClient};
 
-pub async fn init(client: &mut LspClient, root_uri: Url) -> Result<InitializeResult, JsonRpcError> {
+pub async fn init(client: &mut LspClient, root_uri: Url) -> Result<InitializeResult, LspError> {
     let params = InitializeParams {
         root_uri: Some(root_uri),
         capabilities: ClientCapabilities {
@@ -209,7 +210,7 @@ pub async fn get_function_calls(
             }
             Ok(None) => {}
             Err(e) => {
-                dbg!(format!(
+                debug!(
                     "got jsonRpcError for {:?}: {:?} {:?}",
                     (
                         &target_item
@@ -221,7 +222,7 @@ pub async fn get_function_calls(
                     ),
                     e.code,
                     e.message
-                ));
+                );
             }
         }
     }

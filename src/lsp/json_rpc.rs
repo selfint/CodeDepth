@@ -2,54 +2,35 @@ use std::error::Error;
 
 use lsp_types::{notification::Notification, request::Request};
 use regex::Regex;
-use serde::{de::DeserializeOwned, Deserialize};
-use serde_json::json;
+use serde::Deserialize;
+use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 pub const JSON_RPC_VERSION: &str = "2.0";
 
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct _Response<T> {
+#[derive(Debug, Clone, Deserialize)]
+pub struct LspResponse<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<usize>,
     #[allow(dead_code)]
     pub jsonrpc: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<JsonRpcError>,
+    #[serde(flatten)]
+    pub response: ResponseContents<T>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Response<T> {
-    pub id: Option<usize>,
-    pub response: Result<T, JsonRpcError>,
-}
-
-impl<T> TryFrom<_Response<T>> for Response<T> {
-    type Error = Box<dyn Error>;
-
-    fn try_from(response: _Response<T>) -> Result<Self, Self::Error> {
-        if !(response.result.is_some() ^ response.error.is_some()) {
-            return Err("got response without result and error".into());
-        }
-
-        if let Some(result) = response.result {
-            Ok(Self {
-                id: response.id,
-                response: Ok(result),
-            })
-        } else {
-            Ok(Self {
-                id: response.id,
-                response: Err(response.error.unwrap()),
-            })
-        }
-    }
+#[serde(untagged)]
+pub enum ResponseContents<T> {
+    // Error must be first!
+    // serde tries to deserialize these in order if T is an Option, then `result: T`
+    // will always match even, if there is also an error
+    Error { error: LspError },
+    Result { result: T },
+    UnknownResult { result: Value },
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct JsonRpcError {
+pub struct LspError {
     pub code: isize,
     pub message: String,
 }
@@ -122,19 +103,4 @@ where
     }
 
     Ok(msg_buf)
-}
-
-pub fn get_response_result<T: DeserializeOwned>(buf: &[u8]) -> Result<Response<T>, Box<dyn Error>> {
-    match serde_json::from_slice::<_Response<T>>(buf) {
-        Ok(it) => it,
-        Err(err) => {
-            eprintln!("got error on buf size: {}", buf.len());
-            eprintln!(
-                "buf {}",
-                std::str::from_utf8(buf).unwrap().chars().nth(100).unwrap()
-            );
-            return Err(Box::new(err));
-        }
-    }
-    .try_into()
 }

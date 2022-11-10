@@ -1,3 +1,4 @@
+use log::{debug, error, warn};
 use lsp_types::{
     notification::{Initialized, Notification},
     request::{
@@ -15,9 +16,9 @@ use tokio::{
     sync::mpsc,
 };
 
-use crate::lsp::json_rpc::_Response;
+use crate::lsp::json_rpc::{LspResponse, ResponseContents};
 
-use super::json_rpc::{self, build_notification, build_request, JsonRpcError, Response};
+use super::json_rpc::{self, build_notification, build_request, LspError};
 
 pub struct LspClient {
     to_server: mpsc::UnboundedSender<Vec<u8>>,
@@ -46,8 +47,8 @@ impl LspClient {
     pub async fn notify<N: Notification>(&mut self, params: &N::Params) {
         let notification = build_notification::<N>(params);
 
-        println!(
-            "notification = {}",
+        debug!(
+            "Sending LSP notification:\n{}",
             std::str::from_utf8(&notification).unwrap()
         );
 
@@ -56,38 +57,62 @@ impl LspClient {
             .expect("failed to send request to server");
     }
 
-    pub async fn call<R: Request>(
-        &mut self,
-        params: &R::Params,
-    ) -> Result<R::Result, JsonRpcError> {
-        let request = build_request::<R>(self.request_count, params);
+    pub async fn call<R: Request>(&mut self, params: &R::Params) -> Result<R::Result, LspError> {
+        let request_id = self.request_count;
+        let request = build_request::<R>(request_id, params);
         self.request_count += 1;
 
-        println!("request = {}", std::str::from_utf8(&request).unwrap());
+        debug!(
+            "Sending LSP request:\n{}",
+            std::str::from_utf8(&request).unwrap()
+        );
 
         self.to_server
             .send(request)
             .expect("failed to send request to server");
 
         loop {
-            if let Some(response) = self.from_server.recv().await {
-                dbg!(&response);
-                match response {
-                    Ok(out) => match serde_json::from_value::<_Response<R::Result>>(out) {
-                        Ok(result) => {
-                            let response: Result<Response<_>, _> = result.try_into();
+            let Some(from_server) = self.from_server.recv().await else { continue };
 
-                            if let Ok(response) = response {
-                                return response.response;
-                            }
-                        }
-                        Err(err) => {
-                            eprintln!("got unexpected response type, or failed to deserialize response, err:\n{}", err);
-                        }
-                    },
-                    Err(err) => {
-                        eprintln!("got error event, err:\n{}", err);
-                    }
+            let out = match from_server {
+                Ok(out) => out,
+                Err(err) => {
+                    error!("Received error: {}", err);
+                    continue;
+                }
+            };
+
+            debug!(
+                "Received LSP response:\n{}",
+                serde_json::to_string_pretty(&out).unwrap()
+            );
+
+            let lsp_response = match serde_json::from_value::<LspResponse<R::Result>>(out) {
+                Ok(response) => response,
+                Err(err) => {
+                    error!("Received malformed response, err: {}", err);
+                    continue;
+                }
+            };
+
+            let Some(response_id) = lsp_response.id else {
+                warn!("Received unexpected response without id");
+                continue;
+            };
+
+            if response_id != request_id {
+                warn!(
+                    "Received unexpected response id: {} (expected {})",
+                    response_id, request_id
+                );
+                continue;
+            }
+
+            match lsp_response.response {
+                ResponseContents::Result { result } => return Ok(result),
+                ResponseContents::Error { error } => return Err(error),
+                ResponseContents::UnknownResult { result: _ } => {
+                    error!("Received unknown result type (this is probably fatal)");
                 }
             }
         }
@@ -96,7 +121,7 @@ impl LspClient {
     pub async fn initialize(
         &mut self,
         params: &InitializeParams,
-    ) -> Result<InitializeResult, JsonRpcError> {
+    ) -> Result<InitializeResult, LspError> {
         let result = self.call::<Initialize>(params).await?;
 
         self.notify::<Initialized>(&InitializedParams {}).await;
@@ -107,7 +132,7 @@ impl LspClient {
     pub async fn workspace_symbol(
         &mut self,
         query: &str,
-    ) -> Result<Option<Vec<SymbolInformation>>, JsonRpcError> {
+    ) -> Result<Option<Vec<SymbolInformation>>, LspError> {
         let params = WorkspaceSymbolParams {
             query: query.to_string(),
             ..Default::default()
@@ -119,7 +144,7 @@ impl LspClient {
     pub async fn document_symbol(
         &mut self,
         uri: Url,
-    ) -> Result<Option<DocumentSymbolResponse>, JsonRpcError> {
+    ) -> Result<Option<DocumentSymbolResponse>, LspError> {
         let params = DocumentSymbolParams {
             text_document: TextDocumentIdentifier { uri },
             partial_result_params: PartialResultParams::default(),
@@ -132,7 +157,7 @@ impl LspClient {
     pub async fn call_hierarchy_incoming_calls(
         &mut self,
         item: CallHierarchyItem,
-    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>, JsonRpcError> {
+    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>, LspError> {
         let params = CallHierarchyIncomingCallsParams {
             item,
             work_done_progress_params: WorkDoneProgressParams::default(),
@@ -194,18 +219,18 @@ pub fn start_io_threads(
 
             let mut buf = vec![];
             while let Ok(byte) = stderr.read_u8().await {
-                let err = std::str::from_utf8(&buf).unwrap();
-                if let Some(char) = err.chars().last() {
-                    if char == '\n' {
-                        dbg!(&err);
-                        err_sender
-                            .send(Err(json!({ "err": err })))
-                            .expect("failed to send error to from_server queue");
-                        buf.clear();
-                    }
-                }
-
                 buf.push(byte);
+
+                let Ok(err) = std::str::from_utf8(&buf) else { continue };
+                let Some(last_char) = err.chars().last() else { continue };
+
+                if last_char == '\n' {
+                    err_sender
+                        .send(Err(json!({ "err": err })))
+                        .expect("failed to send error to from_server queue");
+
+                    buf.clear();
+                }
             }
         });
         responses
