@@ -25,21 +25,29 @@ async fn start_lang_server(exe: &str) -> LspClient {
     LspClient::stdio_client(server)
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    let args: Vec<String> = env::args().collect();
+fn parse_args() -> (PathBuf, String, Regex) {
+    let mut args = env::args();
 
-    let project_path = Path::new(args.get(1).expect("missing argument <project_path>"));
-    let lang_server_exe = args.get(2).expect("missing argument <lang_server_exe>");
-    let test_re = if let Some(test_str) = args.get(3) {
-        Regex::new(test_str).unwrap_or_else(|_| panic!("invalid regex: '{}'", test_str))
+    let project_path = Path::new(&args.next().expect("missing argument <project_path>"))
+        .canonicalize()
+        .expect("given <project_path> couldn't be canonicalized");
+
+    let lang_server_exe = args.next().expect("missing argument <lang_server_exe>");
+
+    let test_re = if let Some(test_str) = args.next() {
+        Regex::new(&test_str).unwrap_or_else(|_| panic!("invalid regex: '{}'", test_str))
     } else {
         Regex::new(".*test.*").unwrap()
     };
 
-    let mut client = start_lang_server(lang_server_exe).await;
+    (project_path, lang_server_exe, test_re)
+}
 
-    let project_path = project_path.canonicalize().unwrap();
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let (project_path, lang_server_exe, test_re) = parse_args();
+
+    let mut client = start_lang_server(&lang_server_exe).await;
 
     let project_url =
         Url::from_file_path(project_path).expect("failed to convert project path to URL");
