@@ -1,10 +1,16 @@
-use std::{collections::HashSet, env, hash::Hash, path::Path, process::Stdio, time::Duration};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
 
-use code_depth::{hashable_call_hierarchy_item::HashableCallHierarchyItem, lsp::LspClient};
 use lsp_types::{CallHierarchyItem, Url};
 use regex::Regex;
 use serde_json::json;
 use tokio::process::Command;
+
+use code_depth::{hashable_call_hierarchy_item::HashableCallHierarchyItem, lsp::LspClient};
 
 async fn start_lang_server(exe: &str) -> LspClient {
     let parts = exe.split_ascii_whitespace().collect::<Vec<_>>();
