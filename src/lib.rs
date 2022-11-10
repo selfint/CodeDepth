@@ -164,13 +164,7 @@ pub async fn get_function_calls(
 
     for file in workspace_files.iter() {
         // get file symbols
-        let params = lsp_types::DocumentSymbolParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file.clone() },
-            partial_result_params: lsp_types::PartialResultParams::default(),
-            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
-        };
-
-        let result = client.document_symbol(&params).await.unwrap().unwrap();
+        let result = client.document_symbol(file.clone()).await.unwrap().unwrap();
 
         match result {
             // we need DocumentSymbol for the precise location of the function name
@@ -189,19 +183,15 @@ pub async fn get_function_calls(
             kind: definition.kind,
             tags: definition.tags,
             detail: definition.detail,
-            uri: file.clone(),
+            uri: file,
             range: definition.range,
             selection_range: definition.selection_range,
             data: None,
         };
 
-        let params = lsp_types::CallHierarchyIncomingCallsParams {
-            item: target_item.clone(),
-            work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
-            partial_result_params: lsp_types::PartialResultParams::default(),
-        };
-
-        let result = client.call_hierarchy_incoming_calls(&params).await;
+        let result = client
+            .call_hierarchy_incoming_calls(target_item.clone())
+            .await;
 
         match result {
             Ok(result) => {
@@ -223,7 +213,7 @@ pub async fn get_function_calls(
                 dbg!(format!(
                     "got jsonRpcError for {:?}: {:?} {:?}",
                     (
-                        file.as_str(),
+                        &target_item.uri.as_str(),
                         &target_item.name,
                         &target_item.selection_range.start
                     ),

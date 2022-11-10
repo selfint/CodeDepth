@@ -3,9 +3,10 @@ use lsp_types::{
     request::{
         CallHierarchyIncomingCalls, DocumentSymbolRequest, Initialize, Request, WorkspaceSymbol,
     },
-    CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, DocumentSymbolParams,
-    DocumentSymbolResponse, InitializeParams, InitializeResult, InitializedParams,
-    SymbolInformation, WorkspaceSymbolParams,
+    CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
+    DocumentSymbolParams, DocumentSymbolResponse, InitializeParams, InitializeResult,
+    InitializedParams, PartialResultParams, SymbolInformation, TextDocumentIdentifier, Url,
+    WorkDoneProgressParams, WorkspaceSymbolParams,
 };
 use serde_json::{json, Value};
 use tokio::{
@@ -117,16 +118,28 @@ impl LspClient {
 
     pub async fn document_symbol(
         &mut self,
-        params: &DocumentSymbolParams,
+        uri: Url,
     ) -> Result<Option<DocumentSymbolResponse>, JsonRpcError> {
-        self.call::<DocumentSymbolRequest>(params).await
+        let params = DocumentSymbolParams {
+            text_document: TextDocumentIdentifier { uri },
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        };
+
+        self.call::<DocumentSymbolRequest>(&params).await
     }
 
     pub async fn call_hierarchy_incoming_calls(
         &mut self,
-        params: &CallHierarchyIncomingCallsParams,
+        item: CallHierarchyItem,
     ) -> Result<Option<Vec<CallHierarchyIncomingCall>>, JsonRpcError> {
-        self.call::<CallHierarchyIncomingCalls>(params).await
+        let params = CallHierarchyIncomingCallsParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        };
+
+        self.call::<CallHierarchyIncomingCalls>(&params).await
     }
 }
 
