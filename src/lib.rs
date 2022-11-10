@@ -296,13 +296,10 @@ pub fn get_function_depths(
         }
     }
 
-    // TODO: what is the functional way to implement this (without clone)?
-    let mut r = vec![];
-    for (k, v) in item_paths_from_roots {
-        r.push((k.into(), v));
-    }
-
-    r
+    item_paths_from_roots
+        .into_iter()
+        .map(|(k, v)| (k.into(), v))
+        .collect()
 }
 
 pub fn build_short_fn_depths(
