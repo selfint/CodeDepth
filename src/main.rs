@@ -1,10 +1,6 @@
-use std::{
-    env,
-    path::{Path, PathBuf},
-    process::Stdio,
-    time::Duration,
-};
+use std::{path::PathBuf, process::Stdio, time::Duration};
 
+use clap::Parser;
 use lsp_types::{CallHierarchyItem, Url};
 use regex::Regex;
 use serde_json::json;
@@ -31,19 +27,30 @@ async fn start_lang_server(exe: &str) -> LspClient {
     LspClient::stdio_client(server)
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    project_path: PathBuf,
+
+    #[arg(short, long)]
+    lang_server_exe: String,
+
+    #[arg(short, long, default_value = ".*test.*")]
+    ignore_re: Option<String>,
+}
+
 fn parse_args() -> (PathBuf, String, Regex) {
-    let mut args = env::args();
+    let args = Args::parse();
 
-    // skip binary name
-    args.next();
-
-    let project_path = Path::new(&args.next().expect("missing argument <project_path>"))
+    let project_path = args
+        .project_path
         .canonicalize()
         .expect("given <project_path> couldn't be canonicalized");
 
-    let lang_server_exe = args.next().expect("missing argument <lang_server_exe>");
+    let lang_server_exe = args.lang_server_exe;
 
-    let test_re = if let Some(test_str) = args.next() {
+    let test_re = if let Some(test_str) = args.ignore_re {
         Regex::new(&test_str).unwrap_or_else(|_| panic!("invalid regex: '{}'", test_str))
     } else {
         Regex::new(".*test.*").unwrap()
