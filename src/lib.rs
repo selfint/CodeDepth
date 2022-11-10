@@ -194,26 +194,28 @@ pub async fn get_function_calls(
             .await;
 
         match result {
-            Ok(result) => {
-                if let Some(response) = result {
-                    for source_item in response {
-                        // filter out calls from outside our project
-                        if source_item
-                            .from
-                            .uri
-                            .as_str()
-                            .starts_with(project_root.as_str())
-                        {
-                            calls.push((source_item.from, target_item.clone()));
-                        }
+            Ok(Some(response)) => {
+                for source_item in response {
+                    // filter out calls from outside our project
+                    if source_item
+                        .from
+                        .uri
+                        .as_str()
+                        .starts_with(project_root.as_str())
+                    {
+                        calls.push((source_item.from, target_item.clone()));
                     }
                 }
             }
+            Ok(None) => {}
             Err(e) => {
                 dbg!(format!(
                     "got jsonRpcError for {:?}: {:?} {:?}",
                     (
-                        &target_item.uri.as_str(),
+                        &target_item
+                            .uri
+                            .as_str()
+                            .trim_start_matches(project_root.as_str()),
                         &target_item.name,
                         &target_item.selection_range.start
                     ),
