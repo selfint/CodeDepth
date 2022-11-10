@@ -5,6 +5,7 @@ pub mod lsp;
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
+    hash::Hash,
     time::Duration,
 };
 
@@ -336,4 +337,32 @@ pub fn build_short_fn_depths(
     }
 
     short_item_depths
+}
+
+pub type Depths<T> = Vec<(T, Vec<Vec<T>>)>;
+pub fn find_items_with_different_depths<T, H>(depths: Depths<T>) -> Depths<T>
+where
+    T: PartialEq + Into<H> + Clone,
+    H: Hash + Eq + From<T>,
+{
+    depths
+        .into_iter()
+        .filter(|(item, item_paths_from_roots)| {
+            let total_unique_depths = item_paths_from_roots
+                .iter()
+                .map(|path| path.len())
+                .collect::<HashSet<_>>()
+                .len();
+
+            let mut all_hops: HashSet<H> = HashSet::new();
+            let paths_are_unique = item_paths_from_roots.iter().all(|path| {
+                path.iter().filter(|&hop| hop != item).all(|hop| {
+                    let h_hop: H = hop.clone().into();
+                    all_hops.insert(h_hop)
+                })
+            });
+
+            total_unique_depths > 1 && paths_are_unique
+        })
+        .collect()
 }
