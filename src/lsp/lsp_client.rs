@@ -105,9 +105,14 @@ impl LspClient {
 
     pub async fn workspace_symbol(
         &mut self,
-        params: &WorkspaceSymbolParams,
+        query: &str,
     ) -> Result<Option<Vec<SymbolInformation>>, JsonRpcError> {
-        self.call::<WorkspaceSymbol>(params).await
+        let params = WorkspaceSymbolParams {
+            query: query.to_string(),
+            ..Default::default()
+        };
+
+        self.call::<WorkspaceSymbol>(&params).await
     }
 
     pub async fn document_symbol(

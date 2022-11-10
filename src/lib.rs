@@ -10,7 +10,8 @@ use std::{
 };
 
 use lsp_types::{
-    CallHierarchyItem, InitializeResult, SymbolInformation, SymbolKind, Url, WorkspaceSymbolParams,
+    CallHierarchyItem, ClientCapabilities, DocumentSymbolClientCapabilities, InitializeParams,
+    InitializeResult, SymbolKind, TextDocumentClientCapabilities, Url,
 };
 
 use graph_util::get_depths;
@@ -18,11 +19,11 @@ use hashable_call_hierarchy_item::HashableCallHierarchyItem;
 use lsp::{json_rpc::JsonRpcError, LspClient};
 
 pub async fn init(client: &mut LspClient, root_uri: Url) -> Result<InitializeResult, JsonRpcError> {
-    let params = lsp_types::InitializeParams {
+    let params = InitializeParams {
         root_uri: Some(root_uri),
-        capabilities: lsp_types::ClientCapabilities {
-            text_document: Some(lsp_types::TextDocumentClientCapabilities {
-                document_symbol: Some(lsp_types::DocumentSymbolClientCapabilities {
+        capabilities: ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                document_symbol: Some(DocumentSymbolClientCapabilities {
                     hierarchical_document_symbol_support: Some(true),
                     ..Default::default()
                 }),
@@ -99,17 +100,10 @@ pub async fn get_workspace_files(
     let retry_amount = max_duration.as_millis() / retry_sleep_duration;
     let mut retries_left = retry_amount;
 
-    let params = WorkspaceSymbolParams {
-        // for rust-analyzer we need to append '#' to get function definitions
-        // this might not be good for all LSP servers
-        // TODO: add option to set query string by lsp server, and maybe this is the default?
-        query: "#".into(),
-        ..Default::default()
-    };
-
-    let mut symbols: Vec<SymbolInformation> = vec![];
-
-    let mut result = client.workspace_symbol(&params).await;
+    // for rust-analyzer we need to append '#' to get function definitions
+    // this might not be good for all LSP servers
+    // TODO: add option to set query string by lsp server, and maybe this is the default?
+    let mut result = client.workspace_symbol("#").await;
 
     // wait for server to index project
     // TODO: add 'lsp-server-ready' check instead of this hack
@@ -123,21 +117,16 @@ pub async fn get_workspace_files(
 
         std::thread::sleep(Duration::from_millis(retry_sleep_duration as u64));
 
-        result = client.workspace_symbol(&params).await;
+        result = client.workspace_symbol("#").await;
     }
 
-    // check if empty query works
+    let mut symbols = vec![];
     if let Ok(Some(result)) = &mut result {
         symbols.append(result);
     }
 
     // try empty query strategy
-    let params = WorkspaceSymbolParams {
-        query: "".into(),
-        ..Default::default()
-    };
-
-    let mut result = client.workspace_symbol(&params).await;
+    let mut result = client.workspace_symbol("").await;
 
     if let Ok(Some(result)) = &mut result {
         symbols.append(result);
@@ -145,12 +134,7 @@ pub async fn get_workspace_files(
 
     // try letter by letter strategy
     for letter in "abcdefghijklmnopqrstuvwxyz".chars() {
-        let params = WorkspaceSymbolParams {
-            query: letter.into(),
-            ..Default::default()
-        };
-
-        let mut result = client.workspace_symbol(&params).await;
+        let mut result = client.workspace_symbol(&letter.to_string()).await;
 
         if let Ok(Some(result)) = &mut result {
             symbols.append(result);
