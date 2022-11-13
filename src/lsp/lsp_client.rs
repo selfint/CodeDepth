@@ -9,11 +9,11 @@ use lsp_types::{
     InitializedParams, PartialResultParams, SymbolInformation, TextDocumentIdentifier, Url,
     WorkDoneProgressParams, WorkspaceSymbolParams,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     process::Child,
-    sync::{broadcast, mpsc},
+    sync::mpsc,
 };
 
 use crate::lsp::json_rpc::{LspResponse, ResponseContents};
@@ -22,14 +22,14 @@ use super::json_rpc::{self, build_notification, build_request, LspError};
 
 pub struct LspClient {
     to_server: mpsc::UnboundedSender<Vec<u8>>,
-    from_server: broadcast::Receiver<Value>,
+    from_server: mpsc::UnboundedReceiver<Result<Value, Value>>,
     request_count: usize,
 }
 
 impl LspClient {
     pub fn new(
         to_server: mpsc::UnboundedSender<Vec<u8>>,
-        from_server: broadcast::Receiver<Value>,
+        from_server: mpsc::UnboundedReceiver<Result<Value, Value>>,
     ) -> Self {
         Self {
             to_server,
@@ -72,11 +72,15 @@ impl LspClient {
             .expect("failed to send request to server");
 
         loop {
-            let out = self
-                .from_server
-                .recv()
-                .await
-                .expect("Failed to recv from server");
+            let Some(from_server) = self.from_server.recv().await else { continue };
+
+            let out = match from_server {
+                Ok(out) => out,
+                Err(err) => {
+                    error!("Received error: {}", err);
+                    continue;
+                }
+            };
 
             debug!(
                 "Received LSP response:\n{}",
@@ -166,7 +170,10 @@ impl LspClient {
 
 pub fn start_io_threads(
     mut server: Child,
-) -> (mpsc::UnboundedSender<Vec<u8>>, broadcast::Receiver<Value>) {
+) -> (
+    mpsc::UnboundedSender<Vec<u8>>,
+    mpsc::UnboundedReceiver<Result<Value, Value>>,
+) {
     let (to_server, mut to_server_receiver) = mpsc::unbounded_channel::<Vec<u8>>();
     tokio::spawn(async move {
         let stdin = server
@@ -183,30 +190,9 @@ pub fn start_io_threads(
         }
     });
 
-    // log errors from server process
-    tokio::spawn(async move {
-        let stderr = server
-            .stderr
-            .as_mut()
-            .take()
-            .expect("failed to acquire stderr of server process");
-
-        let mut buf = vec![];
-        while let Ok(byte) = stderr.read_u8().await {
-            buf.push(byte);
-
-            let Ok(err) = std::str::from_utf8(&buf) else { continue };
-            let Some(last_char) = err.chars().last() else { continue };
-
-            if last_char == '\n' {
-                error!("Got error from server process: {}", err);
-                buf.clear();
-            }
-        }
-    });
-
     let from_server = {
-        let (to_responses, from_server) = broadcast::channel::<Value>(1_000_000);
+        let (out_sender, responses) = mpsc::unbounded_channel::<Result<Value, Value>>();
+        let err_sender = out_sender.clone();
 
         tokio::spawn(async move {
             let stdout = server
@@ -217,14 +203,37 @@ pub fn start_io_threads(
 
             while let Ok(buf) = json_rpc::get_next_response(stdout).await {
                 if let Ok(msg) = serde_json::from_slice::<Value>(&buf) {
-                    to_responses
-                        .send(msg)
+                    out_sender
+                        .send(Ok(msg))
                         .expect("failed to send response to from_server queue");
                 }
             }
         });
 
-        from_server
+        tokio::spawn(async move {
+            let stderr = server
+                .stderr
+                .as_mut()
+                .take()
+                .expect("failed to acquire stderr of server process");
+
+            let mut buf = vec![];
+            while let Ok(byte) = stderr.read_u8().await {
+                buf.push(byte);
+
+                let Ok(err) = std::str::from_utf8(&buf) else { continue };
+                let Some(last_char) = err.chars().last() else { continue };
+
+                if last_char == '\n' {
+                    err_sender
+                        .send(Err(json!({ "err": err })))
+                        .expect("failed to send error to from_server queue");
+
+                    buf.clear();
+                }
+            }
+        });
+        responses
     };
 
     (to_server, from_server)
