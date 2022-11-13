@@ -11,25 +11,6 @@ use code_depth::{
     lsp::LspClient, Depths,
 };
 
-async fn run_cmd(cmd: &str) -> Child {
-    let cmd_parts = cmd.split_ascii_whitespace().collect::<Vec<_>>();
-
-    let mut child = Command::new(cmd_parts[0]);
-
-    let mut child = child
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if cmd_parts.len() > 1 {
-        child = child.args(cmd_parts.iter().skip(1).collect::<Vec<_>>())
-    };
-
-    child
-        .spawn()
-        .unwrap_or_else(|_| panic!("failed to run: '{}'", cmd))
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -97,6 +78,25 @@ async fn main() {
     let results_json = build_results_json(&depths, &project_url);
 
     println!("{}", serde_json::to_string_pretty(&results_json).unwrap());
+}
+
+async fn run_cmd(cmd: &str) -> Child {
+    let cmd_parts = cmd.split_ascii_whitespace().collect::<Vec<_>>();
+
+    let mut child = Command::new(cmd_parts[0]);
+
+    let mut child = child
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    if cmd_parts.len() > 1 {
+        child = child.args(cmd_parts.iter().skip(1).collect::<Vec<_>>())
+    };
+
+    child
+        .spawn()
+        .unwrap_or_else(|_| panic!("failed to run: '{}'", cmd))
 }
 
 fn build_results_json(depths: &Depths<CallHierarchyItem>, project_url: &Url) -> Value {
