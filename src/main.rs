@@ -4,30 +4,30 @@ use clap::Parser;
 use lsp_types::{CallHierarchyItem, Url};
 use regex::Regex;
 use serde_json::{json, Value};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 
 use code_depth::{
     build_call_hierarchy_item_name, hashable_call_hierarchy_item::HashableCallHierarchyItem,
     lsp::LspClient, Depths,
 };
 
-async fn start_lang_server(exe: &str) -> LspClient {
-    let parts = exe.split_ascii_whitespace().collect::<Vec<_>>();
+async fn run_cmd(cmd: &str) -> Child {
+    let cmd_parts = cmd.split_ascii_whitespace().collect::<Vec<_>>();
 
-    let mut server = Command::new(parts[0]);
+    let mut child = Command::new(cmd_parts[0]);
 
-    let mut server = server
+    let mut child = child
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    if parts.len() > 1 {
-        server = server.args(parts.iter().skip(1).collect::<Vec<_>>())
+    if cmd_parts.len() > 1 {
+        child = child.args(cmd_parts.iter().skip(1).collect::<Vec<_>>())
     };
 
-    let server = server.spawn().expect("failed to start rust-analyzer");
-
-    LspClient::stdio_client(server)
+    child
+        .spawn()
+        .unwrap_or_else(|_| panic!("failed to run: '{}'", cmd))
 }
 
 #[derive(Parser, Debug)]
@@ -68,7 +68,8 @@ async fn main() {
 
     let (project_path, lang_server_exe, test_re) = parse_args();
 
-    let mut client = start_lang_server(&lang_server_exe).await;
+    let server = run_cmd(&lang_server_exe).await;
+    let mut client = LspClient::stdio_client(server);
 
     let project_url =
         Url::from_file_path(project_path).expect("failed to convert project path to URL");
