@@ -7,10 +7,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 use tokio::process::{Child, Command};
 
-use code_depth::{
-    build_call_hierarchy_item_name, hashable_call_hierarchy_item::HashableCallHierarchyItem,
-    lsp::LspClient, Depths,
-};
+use code_depth::{hashable_call_hierarchy_item::HashableCallHierarchyItem, lsp::LspClient, Depths};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -124,7 +121,7 @@ fn build_results_json(depths: &Depths<CallHierarchyItem>, project_url: &Url) -> 
     let problem_items =
         code_depth::find_items_with_different_depths::<_, HashableCallHierarchyItem>(depths)
             .iter()
-            .map(|item| build_call_hierarchy_item_name(&item.0, project_url))
+            .map(|item| code_depth::build_call_hierarchy_item_name(&item.0, project_url))
             .collect::<HashSet<_>>();
 
     code_depth::build_short_fn_depths(project_url, depths)
