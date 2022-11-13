@@ -8,11 +8,17 @@ use code_depth::{self, lsp::LspClient};
 const SAMPLE_PROJECT_PATH: &str = "tests/jdtls/sample_java_project";
 
 fn start_std_io_lsp_client() -> LspClient {
+    let metadata_dir = std::env::temp_dir().join(".metadata");
+    let data_dir = metadata_dir.to_str().unwrap();
+
+    let config_dir = std::env::temp_dir().join("jdt.ls-java-project");
+    let config_dir = config_dir.to_str().unwrap();
+
     let server = Command::new("jdtls")
         .arg("-data")
-        .arg(std::env::temp_dir().to_str().unwrap())
+        .arg(data_dir)
         .arg("-configuration")
-        .arg(std::env::temp_dir().to_str().unwrap())
+        .arg(config_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
