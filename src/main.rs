@@ -1,12 +1,15 @@
-use std::{path::PathBuf, process::Stdio, time::Duration};
+use std::{collections::HashSet, path::PathBuf, process::Stdio, time::Duration};
 
 use clap::Parser;
 use lsp_types::{CallHierarchyItem, Url};
 use regex::Regex;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::process::Command;
 
-use code_depth::{hashable_call_hierarchy_item::HashableCallHierarchyItem, lsp::LspClient};
+use code_depth::{
+    build_call_hierarchy_item_name, hashable_call_hierarchy_item::HashableCallHierarchyItem,
+    lsp::LspClient, Depths,
+};
 
 async fn start_lang_server(exe: &str) -> LspClient {
     let parts = exe.split_ascii_whitespace().collect::<Vec<_>>();
@@ -84,30 +87,41 @@ async fn main() {
         .unwrap();
 
     let non_test_calls = filter_calls(calls, &test_re, |call: &CallHierarchyItem| {
-        format!(
-            "{}:{}",
-            call.uri.as_str().trim_start_matches(project_url.as_str()),
-            call.name
-        )
+        code_depth::build_call_hierarchy_item_name(call, &project_url)
     });
 
     let depths = code_depth::get_function_depths(non_test_calls);
-
-    // find all items with different depths
-    let items_with_different_depths = code_depth::find_items_with_different_depths::<
-        CallHierarchyItem,
-        HashableCallHierarchyItem,
-    >(depths);
-
-    let mut results_json = json!({});
-
-    code_depth::build_short_fn_depths(&project_url, &items_with_different_depths)
-        .iter()
-        .for_each(|(item_name, item_depths_from_roots)| {
-            results_json[item_name] = serde_json::to_value(item_depths_from_roots).unwrap();
-        });
+    let results_json = build_results_json(&depths, &project_url);
 
     println!("{}", serde_json::to_string_pretty(&results_json).unwrap());
+}
+
+fn build_results_json(depths: &Depths<CallHierarchyItem>, project_url: &Url) -> Value {
+    let mut results_json = json!({});
+
+    results_json["ok"] = json!({});
+    results_json["problems"] = json!({});
+
+    // find all items with different depths
+    let problem_items =
+        code_depth::find_items_with_different_depths::<_, HashableCallHierarchyItem>(depths)
+            .iter()
+            .map(|item| build_call_hierarchy_item_name(&item.0, project_url))
+            .collect::<HashSet<_>>();
+
+    code_depth::build_short_fn_depths(project_url, depths)
+        .iter()
+        .for_each(|(item_name, item_depths_from_roots)| {
+            let item_depths_from_roots = serde_json::to_value(item_depths_from_roots).unwrap();
+
+            if problem_items.contains(item_name) {
+                results_json["problems"][item_name] = item_depths_from_roots;
+            } else {
+                results_json["ok"][item_name] = item_depths_from_roots;
+            }
+        });
+
+    results_json
 }
 
 fn filter_calls<F: Fn(&CallHierarchyItem) -> String>(

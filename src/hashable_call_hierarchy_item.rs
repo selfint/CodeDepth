@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use lsp_types::CallHierarchyItem;
 
 #[derive(Clone)]
-pub struct HashableCallHierarchyItem(CallHierarchyItem);
+pub struct HashableCallHierarchyItem(pub CallHierarchyItem);
 
 impl std::fmt::Debug for HashableCallHierarchyItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -282,26 +282,17 @@ pub fn get_function_depths(
 pub fn build_short_fn_depths(
     root: &Url,
     depths: &Vec<(CallHierarchyItem, Vec<Vec<CallHierarchyItem>>)>,
-) -> Vec<(String, Vec<Vec<String>>)> {
+) -> Depths<String> {
     let mut short_item_depths = vec![];
 
     for (item, paths_from_roots) in depths {
-        let item_name = format!(
-            "{}:{}",
-            item.uri.as_str().trim_start_matches(root.as_str()),
-            item.name.split('(').next().unwrap()
-        );
+        let item_name = build_call_hierarchy_item_name(item, root);
 
         let mut short_paths = vec![];
         for path in paths_from_roots {
             let mut short_path = vec![];
             for hop in path {
-                let hop_name = format!(
-                    "{}:{}",
-                    hop.uri.as_str().trim_start_matches(root.as_str()),
-                    hop.name.split('(').next().unwrap()
-                );
-                short_path.push(hop_name);
+                short_path.push(build_call_hierarchy_item_name(hop, root));
             }
 
             short_paths.push(short_path);
@@ -313,14 +304,22 @@ pub fn build_short_fn_depths(
     short_item_depths
 }
 
+pub fn build_call_hierarchy_item_name(item: &CallHierarchyItem, root: &Url) -> String {
+    format!(
+        "{}:{}",
+        item.uri.as_str().trim_start_matches(root.as_str()),
+        item.name.split('(').next().unwrap()
+    )
+}
+
 pub type Depths<T> = Vec<(T, Vec<Vec<T>>)>;
-pub fn find_items_with_different_depths<T, H>(depths: Depths<T>) -> Depths<T>
+pub fn find_items_with_different_depths<T, H>(depths: &Depths<T>) -> HashSet<H>
 where
     T: PartialEq + Into<H> + Clone,
-    H: Hash + Eq + From<T>,
+    H: Hash + Eq,
 {
     depths
-        .into_iter()
+        .iter()
         .filter(|(item, item_paths_from_roots)| {
             let total_unique_depths = item_paths_from_roots
                 .iter()
@@ -338,5 +337,6 @@ where
 
             total_unique_depths > 1 && paths_are_unique
         })
+        .map(|(item, _)| item.clone().into())
         .collect()
 }
