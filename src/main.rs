@@ -43,30 +43,32 @@ struct Args {
     ignore_re: Option<String>,
 }
 
-fn parse_args() -> (PathBuf, String, Regex) {
-    let args = Args::parse();
+impl Args {
+    fn unpack() -> (PathBuf, String, Regex) {
+        let args = Args::parse();
 
-    let project_path = args
-        .project_path
-        .canonicalize()
-        .expect("given <project_path> couldn't be canonicalized");
+        let project_path = args
+            .project_path
+            .canonicalize()
+            .expect("given <project_path> couldn't be canonicalized");
 
-    let lang_server_exe = args.lang_server_exe;
+        let lang_server_exe = args.lang_server_exe;
 
-    let test_re = if let Some(test_str) = args.ignore_re {
-        Regex::new(&test_str).unwrap_or_else(|_| panic!("invalid regex: '{}'", test_str))
-    } else {
-        Regex::new(".*test.*").unwrap()
-    };
+        let test_re = if let Some(test_str) = args.ignore_re {
+            Regex::new(&test_str).unwrap_or_else(|_| panic!("invalid regex: '{}'", test_str))
+        } else {
+            Regex::new(".*test.*").unwrap()
+        };
 
-    (project_path, lang_server_exe, test_re)
+        (project_path, lang_server_exe, test_re)
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     simple_logger::SimpleLogger::new().env().init().unwrap();
 
-    let (project_path, lang_server_exe, test_re) = parse_args();
+    let (project_path, lang_server_exe, test_re) = Args::unpack();
 
     let server = run_cmd(&lang_server_exe).await;
     let mut client = LspClient::stdio_client(server);
