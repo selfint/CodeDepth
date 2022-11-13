@@ -1,6 +1,7 @@
 use std::{collections::HashSet, path::PathBuf, process::Stdio, time::Duration};
 
 use clap::Parser;
+use log::LevelFilter;
 use lsp_types::{CallHierarchyItem, Url};
 use regex::Regex;
 use serde_json::{json, Value};
@@ -22,16 +23,22 @@ struct Args {
 
     #[arg(short, long, default_value = ".*test.*")]
     ignore_re: Option<String>,
+
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 impl Args {
-    fn unpack() -> (PathBuf, String, Regex) {
+    fn unpack() -> (Url, String, Regex, LevelFilter) {
         let args = Args::parse();
 
         let project_path = args
             .project_path
             .canonicalize()
             .expect("given <project_path> couldn't be canonicalized");
+
+        let project_url =
+            Url::from_file_path(project_path).expect("failed to convert project path to URL");
 
         let lang_server_exe = args.lang_server_exe;
 
@@ -41,21 +48,29 @@ impl Args {
             Regex::new(".*test.*").unwrap()
         };
 
-        (project_path, lang_server_exe, test_re)
+        let verbose: LevelFilter = match args.verbose {
+            0 => LevelFilter::Off,
+            1 => LevelFilter::Info,
+            2 => LevelFilter::Debug,
+            _ => LevelFilter::Trace,
+        };
+
+        (project_url, lang_server_exe, test_re, verbose)
     }
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    simple_logger::SimpleLogger::new().env().init().unwrap();
+    let (project_url, lang_server_exe, test_re, log_level) = Args::unpack();
 
-    let (project_path, lang_server_exe, test_re) = Args::unpack();
+    simple_logger::SimpleLogger::new()
+        .with_level(log_level)
+        .env()
+        .init()
+        .unwrap();
 
     let server = run_cmd(&lang_server_exe).await;
     let mut client = LspClient::stdio_client(server);
-
-    let project_url =
-        Url::from_file_path(project_path).expect("failed to convert project path to URL");
 
     let response = code_depth::init(&mut client, project_url.clone()).await;
 
