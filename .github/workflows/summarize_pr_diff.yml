@@ -1,8 +1,11 @@
-pull_request:
-  branches:
-    - main
-  types:
-    - ready_for_review
+name: Summarize PR diff
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - ready_for_review
 
 jobs:
   summarize:
