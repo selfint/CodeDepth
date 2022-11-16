@@ -1,0 +1,16 @@
+pull_request:
+  branches:
+    - main
+  types:
+    - ready_for_review
+
+jobs:
+  summarize:
+    name: Summarize PR diff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Summarize diff using https://whatthediff.ai/
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          labels: WTD
