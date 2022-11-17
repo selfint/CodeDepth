@@ -64,6 +64,14 @@ pub fn build_notification<N: Notification>(params: &N::Params) -> Vec<u8> {
         .into()
 }
 
+pub fn build_response<R: Request>(id: usize, result: &R::Result) -> Value {
+    json!({
+            "jsonrpc": JSON_RPC_VERSION,
+            "result": serde_json::to_value(result).expect("failed to serialize result"),
+            "id": id,
+    })
+}
+
 pub async fn get_next_response<R>(reader: &mut R) -> Result<Vec<u8>, Box<dyn Error>>
 where
     R: AsyncRead + std::marker::Unpin,
